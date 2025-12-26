@@ -1,112 +1,58 @@
+// FILE: src/services/fileSystem.ts
 // File System Access API Wrapper
-
-export interface FileEntry {
-  handle: FileSystemFileHandle;
-  path: string; // relative path from mount root (e.g. "subfolder/movie.mp4")
-  name: string;
-}
-
-// Add Type Definitions for File System Access API
-declare global {
-  interface Window {
-    showDirectoryPicker: (options?: any) => Promise<FileSystemDirectoryHandle>;
-  }
-
-  interface FileSystemHandlePermissionDescriptor {
-    mode?: 'read' | 'readwrite';
-  }
-
-  interface FileSystemHandle {
-    queryPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>;
-    requestPermission(descriptor?: FileSystemHandlePermissionDescriptor): Promise<PermissionState>;
-  }
-}
-
-const DEFAULT_EXTENSIONS = ['mp4', 'mkv', 'webm', 'mov'];
 
 export const fileSystem = {
   /**
-   * Check if the browser supports File System Access API
+   * Directory picker
    */
-  isSupported: (): boolean => {
-    return 'showDirectoryPicker' in window;
-  },
+  pickDirectory: async (): Promise<FileSystemDirectoryHandle | null> => {
+    const picker = (window as any).showDirectoryPicker as
+      | ((options?: any) => Promise<FileSystemDirectoryHandle>)
+      | undefined;
 
-  /**
-   * Open directory picker dialog
-   */
-  pickDirectory: async (): Promise<FileSystemDirectoryHandle> => {
-    if (!window.showDirectoryPicker) {
-      throw new Error('File System Access API is not supported');
+    if (!picker) {
+      console.error('File System Access API is not supported (showDirectoryPicker missing).');
+      return null;
     }
-    return await window.showDirectoryPicker();
+
+    try {
+      const handle = await picker();
+      return handle;
+    } catch (err: any) {
+      // user cancel or error
+      if (err?.name !== 'AbortError') console.error('pickDirectory failed:', err);
+      return null;
+    }
   },
 
   /**
-   * Verify and request permission for a handle
+   * Verify (and if needed request) permission for a FS handle.
+   * Keep compatibility with existing usage in VideoDetailPage.
    */
   verifyPermission: async (
     handle: FileSystemHandle,
-    mode: 'read' | 'readwrite' = 'read'
+    mode: 'read' | 'readwrite' = 'read',
   ): Promise<boolean> => {
-    const options: FileSystemHandlePermissionDescriptor = { mode };
-    
-    // Check if permission was already granted
-    if ((await handle.queryPermission(options)) === 'granted') {
-      return true;
-    }
+    try {
+      const opts = { mode } as any;
 
-    // Request permission
-    if ((await handle.requestPermission(options)) === 'granted') {
-      return true;
-    }
+      const q = (handle as any).queryPermission;
+      const r = (handle as any).requestPermission;
 
-    return false;
-  },
-
-  /**
-   * Scan directory recursively for video files
-   */
-  getFilesRecursively: async (
-    dirHandle: FileSystemDirectoryHandle,
-    extensions: string[] = DEFAULT_EXTENSIONS,
-    recursive: boolean = true,
-    ignoreGlobs: string[] = [], // TODO: Implement robust glob matching
-    currentPath: string = ''
-  ): Promise<FileEntry[]> => {
-    let files: FileEntry[] = [];
-    
-    // Convert extensions to lowercase for case-insensitive comparison
-    const targetExts = new Set(extensions.map(e => e.toLowerCase().replace(/^\./, '')));
-
-    for await (const entry of dirHandle.values()) {
-      // Skip hidden files/folders (starting with dot)
-      if (entry.name.startsWith('.')) continue;
-
-      const entryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
-
-      // TODO: Implement proper glob matching here if needed
-      if (entry.kind === 'file') {
-        const ext = entry.name.split('.').pop()?.toLowerCase();
-        if (ext && targetExts.has(ext)) {
-          files.push({
-            handle: entry as FileSystemFileHandle,
-            path: entryPath,
-            name: entry.name
-          });
-        }
-      } else if (entry.kind === 'directory' && recursive) {
-        const subFiles = await fileSystem.getFilesRecursively(
-          entry as FileSystemDirectoryHandle,
-          extensions,
-          recursive,
-          ignoreGlobs,
-          entryPath
-        );
-        files = [...files, ...subFiles];
+      if (typeof q === 'function') {
+        const state = await q.call(handle, opts);
+        if (state === 'granted') return true;
       }
-    }
 
-    return files;
-  }
+      if (typeof r === 'function') {
+        const state = await r.call(handle, opts);
+        if (state === 'granted') return true;
+      }
+
+      return false;
+    } catch (err) {
+      console.error('verifyPermission failed:', err);
+      return false;
+    }
+  },
 };

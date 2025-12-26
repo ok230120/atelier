@@ -1,6 +1,8 @@
+// FILE: src/hooks/useVideosQuery.ts
 import { useLiveQuery } from 'dexie-react-hooks';
+import Dexie from 'dexie';
 import { db } from '../db/client';
-import { Video } from '../types/domain';
+import type { Video } from '../types/domain';
 
 interface UseVideosQueryProps {
   searchText?: string;
@@ -8,7 +10,9 @@ interface UseVideosQueryProps {
   mountId?: string;
   page?: number;
   pageSize?: number;
-  sort?: 'newest' | 'oldest' | 'popular'; // TODO: popular not fully implemented yet
+  sort?: 'newest' | 'oldest' | 'popular';
+  favoritesOnly?: boolean;
+  filterMode?: 'AND' | 'OR';
 }
 
 interface UseVideosQueryResult {
@@ -24,70 +28,67 @@ export const useVideosQuery = ({
   mountId,
   page = 1,
   pageSize = 20,
-  sort = 'newest'
+  sort = 'newest',
+  favoritesOnly = false,
+  filterMode = 'AND',
 }: UseVideosQueryProps): UseVideosQueryResult => {
-  
-  // Normalize search text
   const normalizedSearch = searchText.toLowerCase().trim();
 
-  // useLiveQuery to reactively fetch data from Dexie
   const result = useLiveQuery(async () => {
-    let collection = db.videos.toCollection();
+    let collection: Dexie.Collection<Video, string>;
 
-    // 1. Filtering (Naive implementation for now - simple AND logic)
-    // Dexie's compound indexing capability is limited for ad-hoc queries, 
-    // so we apply filter in JS for search/tags if needed, or use where clauses if possible.
-    
-    // If mountId is specified, filter by it first (indexed)
+    // 1) mount絞り込みがある場合は、複合インデックスで「mountId + addedAt」を高速に取る
     if (mountId) {
-      collection = db.videos.where('mountId').equals(mountId);
+      // v2の複合インデックスがある前提（schema.tsでversion(2)追加済み）
+      collection = db.videos
+        .where('[mountId+addedAt]')
+        .between([mountId, Dexie.minKey], [mountId, Dexie.maxKey]);
     } else {
-      // Default ordering by addedAt (descending for 'newest')
       collection = db.videos.orderBy('addedAt');
     }
 
-    // Apply sorting direction
+    // newest/oldest
     if (sort === 'newest') {
       collection = collection.reverse();
     }
-    // TODO: Implement other sort modes
+    // popular は将来対応（playCount等の設計が固まったら）
+    // if (sort === 'popular') { ... }
 
-    // Apply in-memory filtering for search text and tags
-    // NOTE: For large datasets, this might need optimization using Dexie's text search addons or better indexing strategies.
-    let filteredCollection = collection.filter(video => {
-      // Filter by Tags (AND logic)
+    // 2) JS側フィルタ（タグ・検索など）
+    const filtered = collection.filter((video: Video) => {
+      if (favoritesOnly && !video.favorite) return false;
+
+      const vtags = video.tags ?? [];
+
       if (tags.length > 0) {
-        const hasAllTags = tags.every(t => video.tags.includes(t));
-        if (!hasAllTags) return false;
+        if (filterMode === 'OR') {
+          if (!tags.some((t) => vtags.includes(t))) return false;
+        } else {
+          if (!tags.every((t) => vtags.includes(t))) return false;
+        }
       }
 
-      // Filter by Search Text
       if (normalizedSearch) {
-        const titleMatch = (video.titleOverride || video.filename).toLowerCase().includes(normalizedSearch);
-        // Simple tag match in search text
-        const tagMatch = video.tags.some(t => t.toLowerCase().includes(normalizedSearch));
+        const title = (video.titleOverride || video.filename || '').toLowerCase();
+        const titleMatch = title.includes(normalizedSearch);
+        const tagMatch = vtags.some((t) => t.toLowerCase().includes(normalizedSearch));
         if (!titleMatch && !tagMatch) return false;
       }
 
       return true;
     });
 
-    // Count total before pagination
-    const totalCount = await filteredCollection.count();
+    const totalCount = await filtered.count();
 
-    // Apply Pagination
     const offset = (page - 1) * pageSize;
-    const videos = await filteredCollection.offset(offset).limit(pageSize).toArray();
+    const videos = await filtered.offset(offset).limit(pageSize).toArray();
 
-    return {
-      videos,
-      totalCount
-    };
-  }, [searchText, tags, mountId, page, pageSize, sort]);
+    return { videos, totalCount };
+  }, [searchText, tags, mountId, page, pageSize, sort, favoritesOnly, filterMode]);
 
   return {
     videos: result?.videos || [],
     totalCount: result?.totalCount || 0,
-    isLoading: !result,
+    isLoading: result === undefined,
   };
 };

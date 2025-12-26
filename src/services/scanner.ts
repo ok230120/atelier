@@ -1,93 +1,181 @@
+// FILE: src/services/scanner.ts
 import { db } from '../db/client';
-import { fileSystem } from './fileSystem';
-import { FolderMount, Video } from '../types/domain';
+import type { FolderMount, Video } from '../types/domain';
 
-export interface ScanResult {
+export interface ScanStats {
+  totalFiles: number; // file handles seen (not directories)
+  matchedVideoFiles: number;
   added: number;
   updated: number;
-  errors: number;
+  skipped: number;
 }
 
-export const scanner = {
-  /**
-   * Scan a mount folder and sync videos to DB
-   */
-  scanMount: async (mount: FolderMount): Promise<ScanResult> => {
-    if (!mount.dirHandle) {
-      throw new Error('Directory handle is missing');
-    }
+function getExtLower(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+}
 
-    // Verify permission before scanning
-    const hasPerm = await fileSystem.verifyPermission(mount.dirHandle, 'read');
-    if (!hasPerm) {
-      throw new Error('Permission denied. Please grant read access to the folder.');
-    }
+/**
+ * File System Access API の型定義が環境/TS設定によって揺れても回せるように、
+ * entries()/values()/Symbol.asyncIterator を順にフォールバックして列挙する。
+ */
+async function* iterateDirectory(
+  dirHandle: FileSystemDirectoryHandle,
+): AsyncIterable<{ name: string; handle: FileSystemHandle }> {
+  const anyDir = dirHandle as any;
 
-    const result: ScanResult = { added: 0, updated: 0, errors: 0 };
-    
-    try {
-      // 1. Get all file entries from file system
-      const files = await fileSystem.getFilesRecursively(
-        mount.dirHandle,
-        mount.exts,
-        mount.includeSubdirs,
-        mount.ignoreGlobs
-      );
+  const iterator: AsyncIterableIterator<any> | null =
+    typeof anyDir.entries === 'function'
+      ? anyDir.entries()
+      : typeof anyDir[Symbol.asyncIterator] === 'function'
+      ? anyDir[Symbol.asyncIterator]()
+      : typeof anyDir.values === 'function'
+      ? anyDir.values()
+      : null;
 
-      // 2. Sync to DB
-      // Using a transaction to ensure consistency
-      await (db as any).transaction('rw', db.videos, async () => {
-        for (const file of files) {
-          // Generate a stable ID based on mount ID and relative path
-          // This allows us to track files even if they are re-scanned
-          const videoId = `${mount.id}:${file.path}`;
-          
-          const existing = await db.videos.get(videoId);
-
-          if (existing) {
-            // Update existing record (refresh file handle, but keep user data)
-            const updatedVideo: Video = {
-              ...existing,
-              fileHandle: file.handle, // Refresh handle in case it changed (though unlikely within same mount)
-              relativePath: file.path,
-              pathKind: 'handle',
-              // Keep other fields like titleOverride, tags, favorite, thumbnail, etc.
-            };
-            await db.videos.put(updatedVideo);
-            result.updated++;
-          } else {
-            // Create new record
-            const newVideo: Video = {
-              id: videoId,
-              mountId: mount.id,
-              pathKind: 'handle',
-              fileHandle: file.handle,
-              filename: file.name,
-              relativePath: file.path,
-              tags: [],
-              favorite: false,
-              addedAt: Date.now(),
-              // Optional fields
-              // titleOverride: undefined,
-              // thumbnail: undefined,
-              // durationSec: undefined,
-              // lastPlayedAt: undefined,
-              // playCount: 0
-            };
-            await db.videos.put(newVideo);
-            result.added++;
-          }
-        }
-      });
-
-      // TODO: Handle deleted files (files in DB but not in FS scan result)
-      // For now, we only add/update files. Garbage collection of lost files is a future task.
-
-    } catch (error) {
-      console.error('Scan failed:', error);
-      throw error;
-    }
-
-    return result;
+  if (!iterator) {
+    throw new Error('DirectoryHandle is not iterable (entries/values/asyncIterator missing)');
   }
-};
+
+  for await (const item of iterator) {
+    // entries() / asyncIterator() の場合: [name, handle]
+    if (Array.isArray(item)) {
+      const [name, handle] = item as [string, FileSystemHandle];
+      yield { name, handle };
+      continue;
+    }
+
+    // values() の場合: handle のみ
+    const handle = item as FileSystemHandle;
+    const name = (handle as any)?.name as string;
+    if (typeof name !== 'string') {
+      throw new Error('Directory iterator item is missing name');
+    }
+    yield { name, handle };
+  }
+}
+
+async function scanDirectoryRecursively(
+  dirHandle: FileSystemDirectoryHandle,
+  basePath: string,
+  mount: FolderMount,
+  stats: ScanStats,
+  allowedExts: Set<string>,
+): Promise<void> {
+  for await (const { name, handle } of iterateDirectory(dirHandle)) {
+    const relativePath = basePath ? `${basePath}/${name}` : name;
+
+    if (handle.kind === 'file') {
+      stats.totalFiles++;
+
+      const ext = getExtLower(name);
+      if (!allowedExts.has(ext)) {
+        stats.skipped++;
+        continue;
+      }
+
+      stats.matchedVideoFiles++;
+
+      const id = `${mount.id}::${relativePath}`;
+
+      try {
+        const existing = await db.videos.get(id);
+
+        if (existing) {
+          // Update only path-related fields; keep user metadata.
+          await db.videos.update(id, {
+            pathKind: 'handle',
+            fileHandle: handle as unknown as FileSystemFileHandle,
+            filename: name,
+            mountId: mount.id,
+            relativePath,
+          });
+          stats.updated++;
+        } else {
+          const newVideo: Video = {
+            id,
+            filename: name,
+            titleOverride: undefined,
+            pathKind: 'handle',
+            fileHandle: handle as unknown as FileSystemFileHandle,
+            url: undefined,
+            mountId: mount.id,
+            relativePath,
+            tags: [],
+            favorite: false,
+            thumbnail: undefined,
+            durationSec: undefined,
+            addedAt: Date.now(),
+            lastPlayedAt: undefined,
+            playCount: 0,
+          };
+          await db.videos.add(newVideo);
+          stats.added++;
+        }
+      } catch (err) {
+        console.error(`Error processing file ${relativePath}:`, err);
+        stats.skipped++;
+      }
+
+      continue;
+    }
+
+    if (handle.kind === 'directory') {
+      if (mount.includeSubdirs) {
+        try {
+          await scanDirectoryRecursively(
+            handle as unknown as FileSystemDirectoryHandle,
+            relativePath,
+            mount,
+            stats,
+            allowedExts,
+          );
+        } catch (err) {
+          console.error(`Error scanning directory ${relativePath}:`, err);
+          // not a file, so don't touch totalFiles; still count as skipped
+          stats.skipped++;
+        }
+      } else {
+        // ignoring subdirs
+        stats.skipped++;
+      }
+    }
+  }
+}
+
+/**
+ * Scan a folder mount and sync videos into DB.
+ */
+export async function scanMount(mount: FolderMount): Promise<ScanStats> {
+  if (mount.pathKind !== 'handle' || !mount.dirHandle) {
+    throw new Error('URL-based mount or missing handle is not supported yet');
+  }
+
+  const stats: ScanStats = {
+    totalFiles: 0,
+    matchedVideoFiles: 0,
+    added: 0,
+    updated: 0,
+    skipped: 0,
+  };
+
+  // normalize exts like ["mp4","mkv"] or [".mp4"] both ok
+  const allowedExts = new Set(
+    (mount.exts || []).map((e) => e.toLowerCase().replace(/^\./, '')).filter(Boolean),
+  );
+
+  try {
+    await scanDirectoryRecursively(
+      mount.dirHandle as unknown as FileSystemDirectoryHandle,
+      '',
+      mount,
+      stats,
+      allowedExts,
+    );
+  } catch (err) {
+    console.error(`Scan failed for mount ${mount.name}:`, err);
+    throw err;
+  }
+
+  return stats;
+}

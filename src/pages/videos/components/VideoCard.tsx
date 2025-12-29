@@ -1,42 +1,49 @@
+// FILE: src/pages/videos/components/VideoCard.tsx
+
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { RiPlayCircleFill, RiHeart3Line, RiHeart3Fill, RiMovieFill } from 'react-icons/ri';
 import classNames from 'classnames';
-import { Video } from '../../../types/domain';
+import { RiPlayCircleFill, RiMovieFill } from 'react-icons/ri';
+
+import type { Video } from '../../../types/domain';
+import { getVideoDisplayTitle } from '../../../utils/videoDisplay';
+import FavoriteToggleButton from './FavoriteToggleButton';
 
 interface VideoCardProps {
   video: Video;
   className?: string;
 }
 
+function formatDuration(sec?: number): string {
+  if (sec == null) return '';
+  const total = Math.max(0, Math.floor(sec));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 const VideoCard: React.FC<VideoCardProps> = ({ video, className }) => {
   const location = useLocation();
 
-  // Format duration (seconds -> MM:SS)
-  const formatDuration = (sec?: number) => {
-    if (!sec) return "";
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  };
-
-  const displayName = video.titleOverride || video.filename;
+  const title = getVideoDisplayTitle(video);
   const durationStr = formatDuration(video.durationSec);
 
-  // ★ここがポイント：今の ?tag=... を詳細URLにも付ける
+  // 一覧の ?tag=... 等を詳細にも引き継ぐ
   const toDetail = `/video/${video.id}${location.search}`;
 
+  const tags = video.tags ?? [];
+
   return (
-    <div className={classNames("group relative flex flex-col gap-2", className)}>
+    <div className={classNames('group relative flex flex-col gap-2', className)}>
       <Link
         to={toDetail}
-        className="block relative aspect-video bg-bg-panel rounded-2xl overflow-hidden border border-border shadow-md 
+        className="block relative aspect-video bg-bg-panel rounded-2xl overflow-hidden border border-border shadow-md
                    transition-all duration-300 group-hover:scale-[1.02] group-hover:shadow-xl group-hover:border-accent/30 group-hover:z-10"
       >
         {video.thumbnail ? (
           <img
             src={video.thumbnail}
-            alt={displayName}
+            alt={title}
             className="w-full h-full object-cover transition-opacity duration-300 opacity-90 group-hover:opacity-100"
             loading="lazy"
           />
@@ -59,35 +66,58 @@ const VideoCard: React.FC<VideoCardProps> = ({ video, className }) => {
           </div>
         )}
 
+        {/* お気に入り（右上） */}
         <div className="absolute top-2 right-2">
-          {video.favorite ? (
-            <div className="bg-black/60 p-1.5 rounded-full backdrop-blur-sm text-red-500">
-              <RiHeart3Fill />
-            </div>
-          ) : (
-            <div className="bg-black/60 p-1.5 rounded-full backdrop-blur-sm text-white opacity-0 group-hover:opacity-100 transition-opacity hover:text-red-400">
-              <RiHeart3Line />
-            </div>
-          )}
+          {/* ハート押下時に Link 遷移しないように止める */}
+          <div
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            <FavoriteToggleButton videoId={video.id} favorite={video.favorite} />
+          </div>
         </div>
       </Link>
 
       <div className="px-1">
-        <div className="flex justify-between items-start gap-2">
-          <Link to={toDetail} className="group-hover:text-accent transition-colors duration-200">
-            <h3 className="font-heading font-medium text-sm leading-snug line-clamp-2 text-text-main" title={displayName}>
-              {displayName}
-            </h3>
+        {/* flexの中で長い1単語が折り返されない事故対策：Linkに min-w-0 */}
+        <div className="flex items-start gap-2">
+          <Link
+            to={toDetail}
+            className="block min-w-0 flex-1 group-hover:text-accent transition-colors duration-200"
+            title={title}
+          >
+            <div
+              className="
+                font-heading font-medium text-sm leading-snug text-text-main
+                min-w-0
+                overflow-hidden
+                whitespace-normal
+                break-words
+                [overflow-wrap:anywhere]
+                [display:-webkit-box]
+                [-webkit-line-clamp:2]
+                [-webkit-box-orient:vertical]
+                min-h-[2.5rem]
+              "
+            >
+              {title}
+            </div>
           </Link>
         </div>
 
-        {video.tags.length > 0 && (
+        {tags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1.5 opacity-60 group-hover:opacity-90 transition-opacity">
-            {video.tags.slice(0, 3).map(tag => (
-              <span key={tag} className="text-[10px] text-text-dim">#{tag}</span>
+            {tags.slice(0, 3).map((tag) => (
+              <span key={tag} className="text-[10px] text-text-dim">
+                #{tag}
+              </span>
             ))}
-            {video.tags.length > 3 && (
-              <span className="text-[10px] text-text-dim">+{video.tags.length - 3}</span>
+            {tags.length > 3 && (
+              <span className="text-[10px] text-text-dim">
+                +{tags.length - 3}
+              </span>
             )}
           </div>
         )}

@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { pageRegistry } from './pages/registry';
 import Sidebar from './components/Sidebar';

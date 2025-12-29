@@ -3,12 +3,19 @@ import React from 'react';
 import classNames from 'classnames';
 import { RiCloseLine, RiPriceTag3Line, RiCheckLine } from 'react-icons/ri';
 import type { Video } from '../../../types/domain';
-import { useTagRanking } from '../../../hooks/useTagRanking';
+import { useTagRanking, type RankedTag } from '../../../hooks/useTagRanking';
 
 interface TagDrawerProps {
   open: boolean;
   onClose: () => void;
-  videos: Video[];
+
+  // 以前は必須だったけど、DB側でランキングを渡せるようにして optional に変更
+  videos?: Video[];
+
+  // DBベースのランキング（全件など）を親から渡せるように追加
+  ranking?: RankedTag[];
+  rankingLoading?: boolean;
+
   activeTags: string[];
   onToggleTag: (tag: string) => void;
   tagSort?: 'popular' | 'alpha';
@@ -17,12 +24,18 @@ interface TagDrawerProps {
 const TagDrawer: React.FC<TagDrawerProps> = ({
   open,
   onClose,
-  videos,
+  videos = [],
+  ranking,
+  rankingLoading = false,
   activeTags,
   onToggleTag,
   tagSort = 'popular',
 }) => {
-  const ranking = useTagRanking(videos, tagSort);
+  // 従来の挙動（videosから導出）を fallback として維持
+  const fallbackRanking = useTagRanking(videos, tagSort);
+
+  // 親から ranking が渡されたらそれを優先
+  const effectiveRanking = ranking ?? fallbackRanking;
 
   return (
     <>
@@ -59,13 +72,17 @@ const TagDrawer: React.FC<TagDrawerProps> = ({
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto p-4 scrollbar-thin">
-            {ranking.length === 0 ? (
+            {rankingLoading ? (
+              <div className="text-center py-10 text-text-dim opacity-60">
+                <p>Loading tags...</p>
+              </div>
+            ) : effectiveRanking.length === 0 ? (
               <div className="text-center py-10 text-text-dim opacity-60">
                 <p>No tags found in current list.</p>
               </div>
             ) : (
               <div className="space-y-1">
-                {ranking.map((tag) => {
+                {effectiveRanking.map((tag) => {
                   const isActive = activeTags.includes(tag.name);
                   return (
                     <button
@@ -89,6 +106,7 @@ const TagDrawer: React.FC<TagDrawerProps> = ({
                         </span>
                         <span className="truncate max-w-[160px]">#{tag.name}</span>
                       </div>
+
                       <span
                         className={classNames(
                           'text-xs px-1.5 py-0.5 rounded font-mono',

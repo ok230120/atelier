@@ -17,10 +17,24 @@ import {
 import { db } from '../../db/client';
 import { fileSystem } from '../../services/fileSystem';
 import ThumbnailActions from './components/ThumbnailActions';
+import VideoTagsEditor from './components/VideoTagsEditor';
+import DeleteVideoButton from './components/DeleteVideoButton';
+import TagSelectDrawer from './components/TagSelectDrawer';
+import { useAllTagsQuery } from '../../hooks/useAllTagsQuery';
 
 const VideoDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const videoRef = useRef<HTMLVideoElement>(null);
+
+  // 現在のBlob URLを保持(再生成時にrevokeする)
+  const blobUrlRef = useRef<string | null>(null);
+
+  const [videoSrc, setVideoSrc] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [permissionNeeded, setPermissionNeeded] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
+  // 既存タグを一覧で選ぶ Drawer
+  const [tagDrawerOpen, setTagDrawerOpen] = useState(false);
 
   // Dexie から動画メタデータを取得
   const video = useLiveQuery(async () => {
@@ -28,15 +42,33 @@ const VideoDetailPage: React.FC = () => {
     return await db.videos.get(id);
   }, [id]);
 
-  const [videoSrc, setVideoSrc] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [permissionNeeded, setPermissionNeeded] = useState(false);
-  const [playbackRate, setPlaybackRate] = useState(1);
+  const clearBlobUrl = () => {
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+  };
 
-  // 動画ファイルのURLを準備（Blob URL など）
+  // 全動画から全タグを集計
+  const { tags: allTags, isLoading: allTagsLoading } = useAllTagsQuery({
+    enabled: true,
+  });
+
+  // Apply(まとめて保存)
+  const applyTags = async (nextTags: string[]) => {
+    if (!video) return;
+    await db.videos.update(video.id, { tags: nextTags });
+  };
+
+  const setBlobUrl = (url: string) => {
+    clearBlobUrl();
+    blobUrlRef.current = url;
+    setVideoSrc(url);
+  };
+
+  // 動画ファイルのURLを準備(Blob URL など)
+  // ★重要: 依存を video 全体にしない(tags/favorite更新で再生がリセットされるのを防ぐ)
   useEffect(() => {
-    let objectUrl: string | null = null;
-
     setLoadError(null);
     setPermissionNeeded(false);
     setVideoSrc(null);
@@ -54,9 +86,9 @@ const VideoDetailPage: React.FC = () => {
           }
 
           const file = await video.fileHandle.getFile();
-          objectUrl = URL.createObjectURL(file);
-          setVideoSrc(objectUrl);
+          setBlobUrl(URL.createObjectURL(file));
         } else if (video.pathKind === 'url' && video.url) {
+          clearBlobUrl();
           setVideoSrc(video.url);
         } else {
           setLoadError('Video path or handle is missing.');
@@ -67,22 +99,20 @@ const VideoDetailPage: React.FC = () => {
       }
     };
 
-    if (video) {
-      loadSource();
-    }
+    loadSource();
 
     return () => {
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
+      // ソース切替/アンマウント時にBlob URLを掃除
+      clearBlobUrl();
     };
-  }, [video]);
+    // tags/title/favorite等で再実行されないよう、ソースに関係するものだけ依存にする
+  }, [video?.id, video?.pathKind, video?.fileHandle, video?.url]);
 
   const handleRateChange = (rate: number) => {
     if (videoRef.current) {
       videoRef.current.playbackRate = rate;
-      setPlaybackRate(rate);
     }
+    setPlaybackRate(rate);
   };
 
   const toggleFavorite = async () => {
@@ -100,12 +130,13 @@ const VideoDetailPage: React.FC = () => {
     if (!video?.fileHandle) return;
 
     try {
-      const result = await video.fileHandle.requestPermission({ mode: 'read' });
+      // TSのDOM型が追いついてない環境だと requestPermission が赤線になりがちなのでanyで逃がす
+      const handleAny = video.fileHandle as any;
+      const result = await handleAny.requestPermission?.({ mode: 'read' });
       if (result === 'granted') {
         setPermissionNeeded(false);
         const file = await video.fileHandle.getFile();
-        const url = URL.createObjectURL(file);
-        setVideoSrc(url);
+        setBlobUrl(URL.createObjectURL(file));
       }
     } catch (err) {
       console.error('Permission request failed:', err);
@@ -158,9 +189,7 @@ const VideoDetailPage: React.FC = () => {
                 onClick={() => handleRateChange(rate)}
                 className={classNames(
                   'px-2 py-0.5 rounded-full transition-colors',
-                  playbackRate === rate
-                    ? 'bg-accent text-white'
-                    : 'text-text-muted hover:text-text-main',
+                  playbackRate === rate ? 'bg-accent text-white' : 'text-text-muted hover:text-text-main',
                 )}
               >
                 {rate}x
@@ -189,13 +218,8 @@ const VideoDetailPage: React.FC = () => {
         <div className="flex-1 bg-black flex items-center justify-center relative min-h-[300px] lg:h-full">
           {permissionNeeded ? (
             <div className="text-center p-8">
-              <p className="text-text-main mb-4">
-                Permission required to play this file.
-              </p>
-              <button
-                onClick={requestPermission}
-                className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90"
-              >
+              <p className="text-text-main mb-4">Permission required to play this file.</p>
+              <button onClick={requestPermission} className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90">
                 Grant Permission
               </button>
             </div>
@@ -212,20 +236,15 @@ const VideoDetailPage: React.FC = () => {
               autoPlay={false}
               className="w-full h-full max-h-full object-contain outline-none"
               onLoadedMetadata={(e) => {
+                // 再生速度を維持
+                e.currentTarget.playbackRate = playbackRate;
+
                 if (!video.durationSec) {
                   db.videos.update(video.id, {
                     durationSec: e.currentTarget.duration,
                   });
                 }
               }}
-              // ★ onPlayでDB更新するとuseLiveQuery→video変更→useEffectが走り直して
-              //   再生がリセットされるので、ここでは更新しない
-              // onPlay={() => {
-              //   db.videos.update(video.id, {
-              //     lastPlayedAt: Date.now(),
-              //     playCount: (video.playCount || 0) + 1,
-              //   });
-              // }}
             />
           ) : (
             <RiLoader4Line className="animate-spin text-4xl text-text-dim" />
@@ -237,58 +256,53 @@ const VideoDetailPage: React.FC = () => {
           {/* Metadata Section */}
           <div className="space-y-4">
             {hasTitle ? (
-              <h1 className="font-heading text-2xl font-bold leading-tight text-text-main">
-                {video.titleOverride}
-              </h1>
+              <h1 className="font-heading text-2xl font-bold leading-tight text-text-main">{video.titleOverride}</h1>
             ) : (
-              <div className="text-sm text-text-dim italic font-mono break-all">
-                {video.filename}
-              </div>
+              <div className="text-sm text-text-dim italic font-mono break-all">{video.filename}</div>
             )}
-
-            {/* Tags (placeholder) */}
-            <div className="flex flex-wrap gap-2">
-              {video.tags.length > 0 ? (
-                video.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="px-2 py-1 rounded bg-bg-panel border border-border text-xs text-text-muted"
-                  >
-                    #{tag}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-text-dim opacity-50">No tags</span>
-              )}
-            </div>
 
             <div className="text-xs text-text-dim space-y-1">
               <p>
-                Filename:{' '}
-                <span className="font-mono select-all">{video.filename}</span>
+                Filename: <span className="font-mono select-all">{video.filename}</span>
               </p>
               <p>Added: {new Date(video.addedAt).toLocaleDateString()}</p>
               <p>Plays: {video.playCount || 0}</p>
             </div>
           </div>
 
+          {/* Tags Editor + 既存タグから選ぶ */}
+          <div className="space-y-3">
+            <VideoTagsEditor video={video} />
+
+            <button
+              type="button"
+              onClick={() => setTagDrawerOpen(true)}
+              className="w-full px-3 py-2 rounded-xl border border-border bg-bg-panel hover:border-accent/50 text-sm"
+            >
+              {allTagsLoading ? '既存タグを読み込み中...' : '既存タグから選ぶ'}
+            </button>
+          </div>
+
+          <TagSelectDrawer
+            open={tagDrawerOpen}
+            onClose={() => setTagDrawerOpen(false)}
+            allTags={allTags}
+            isLoading={allTagsLoading}
+            selectedTags={video?.tags ?? []}
+            onApply={applyTags}
+          />
+
           <div className="h-px bg-border w-full" />
 
           {/* Thumbnail Section */}
           <div className="space-y-4">
-            <div className="flex items中心">
-              <h3 className="font-medium text-sm text-text-muted uppercase tracking-wider">
-                Thumbnail
-              </h3>
+            <div className="flex items-center">
+              <h3 className="font-medium text-sm text-text-muted uppercase tracking-wider">Thumbnail</h3>
             </div>
 
             <div className="aspect-video bg-bg-panel rounded-lg border border-border overflow-hidden relative flex items-center justify-center">
               {video.thumbnail ? (
-                <img
-                  src={video.thumbnail}
-                  alt="Thumbnail"
-                  className="w-full h-full object-cover"
-                />
+                <img src={video.thumbnail} alt="Thumbnail" className="w-full h-full object-cover" />
               ) : (
                 <div className="flex flex-col items-center text-text-dim opacity-50">
                   <RiMovieFill className="text-3xl mb-1" />
@@ -297,17 +311,14 @@ const VideoDetailPage: React.FC = () => {
               )}
             </div>
 
-            <ThumbnailActions
-              video={video}
-              videoRef={videoRef}
-              onThumbnailChange={handleThumbnailChange}
-            />
+            <ThumbnailActions video={video} videoRef={videoRef} onThumbnailChange={handleThumbnailChange} />
 
-            <p className="text-[10px] text-text-dim mt-2">
-              Capture from video frame or upload an image. Saved in local
-              database.
-            </p>
+            <p className="text-[10px] text-text-dim mt-2">Capture from video frame or upload an image. Saved in local database.</p>
           </div>
+
+          <div className="h-px bg-border w-full" />
+
+          <DeleteVideoButton videoId={video.id} confirmText="この動画の登録データを削除しますか？(元ファイルは消しません)" />
         </div>
       </div>
     </div>

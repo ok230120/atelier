@@ -1,17 +1,23 @@
 // FILE: src/pages/videos/VideosPage.tsx
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import React, { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   RiFilter3Line,
   RiLoader4Line,
   RiMovieLine,
   RiHardDriveLine,
+  RiSortDesc,
+  RiTimeLine,
+  RiLayoutGridLine,
 } from 'react-icons/ri';
 
 import { db } from '../../db/client';
 import { useVideosQuery } from '../../hooks/useVideosQuery';
 import { useAppSettings } from '../../hooks/useAppSettings';
+import { useVideoListUrlState, type SortOption, type LenOption } from '../../hooks/useVideoListUrlState';
+import { useTagRankingQuery } from '../../hooks/useTagRankingQuery';
+
 import SearchBar from '../../components/SearchBar';
 import Pagination from '../../components/Pagination';
 import TagPinnedRow from '../../components/TagPinnedRow';
@@ -19,183 +25,125 @@ import ActiveFiltersBar from '../../components/ActiveFiltersBar';
 import VideoCard from './components/VideoCard';
 import TagDrawer from './components/TagDrawer';
 
-function parsePage(v: string | null): number {
-  const n = Number.parseInt(v ?? '1', 10);
-  if (!Number.isFinite(n) || Number.isNaN(n)) return 1;
-  return Math.max(1, n);
-}
-
-function sortedTags(tags: string[]): string[] {
-  return Array.from(new Set(tags.filter(Boolean))).sort((a, b) => a.localeCompare(b));
-}
-
 const VideosPage: React.FC = () => {
   const settings = useAppSettings();
   const mounts = useLiveQuery(() => db.mounts.toArray(), []) || [];
 
-  const [searchParams, setSearchParams] = useSearchParams();
-  const currentQS = searchParams.toString();
-
-  // 「自分が直前に書いたQS」なら URL->State をスキップして殴り合いを止める
-  const lastWrittenQSRef = useRef<string | null>(null);
-
-  // 初期値はURLから
-  const [searchText, setSearchText] = useState<string>(() => searchParams.get('q') ?? '');
-  const [selectedTags, setSelectedTags] = useState<string[]>(() =>
-    sortedTags(searchParams.getAll('tag')),
-  );
-  const [selectedMountId, setSelectedMountId] = useState<string>(() => searchParams.get('m') ?? '');
-  const [currentPage, setCurrentPage] = useState<number>(() => parsePage(searchParams.get('p')));
+  const list = useVideoListUrlState();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
-  const pageSize = 20;
-
   const { videos, totalCount, isLoading } = useVideosQuery({
-    searchText,
-    tags: selectedTags,
-    mountId: selectedMountId || undefined,
-    page: currentPage,
-    pageSize,
-    sort: 'newest',
+    searchText: list.searchText,
+    tags: list.selectedTags,
+    mountId: list.selectedMountId || undefined,
+    page: list.currentPage,
+    pageSize: list.pageSize,
+    sort: list.sortOrder,
     filterMode: settings.filterMode,
+    minDuration: list.minDurationSec,
+    maxDuration: list.maxDurationSec,
   });
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize) || 1);
-  const selectedMount = mounts.find((m) => m.id === selectedMountId);
+  const totalPages = Math.max(1, Math.ceil(totalCount / list.pageSize) || 1);
+  const selectedMount = mounts.find((m) => m.id === list.selectedMountId);
 
-  // restore/import後に dirHandle が消えるので、それを検知して警告を出す
   const mountsNeedRelink = useMemo(() => {
-    return mounts.filter((m) => !(m as any).dirHandle);
+    return mounts.filter((m) => m.pathKind === 'handle' && !m.dirHandle);
   }, [mounts]);
 
-  const desiredQS = useMemo(() => {
-    const sp = new URLSearchParams();
-
-    const q = searchText.trim();
-    if (q) sp.set('q', q);
-
-    for (const t of sortedTags(selectedTags)) sp.append('tag', t);
-
-    if (selectedMountId) sp.set('m', selectedMountId);
-
-    if (currentPage !== 1) sp.set('p', String(currentPage));
-
-    return sp.toString();
-  }, [searchText, selectedTags, selectedMountId, currentPage]);
-
-  // URL -> State（戻る/進む・手入力用）
-  useEffect(() => {
-    if (lastWrittenQSRef.current === currentQS) {
-      lastWrittenQSRef.current = null;
-      return;
-    }
-
-    const q = searchParams.get('q') ?? '';
-    const tags = sortedTags(searchParams.getAll('tag'));
-    const m = searchParams.get('m') ?? '';
-    const p = parsePage(searchParams.get('p'));
-
-    if (q !== searchText) setSearchText(q);
-
-    const tagsEqual =
-      tags.length === selectedTags.length && tags.every((t, i) => t === selectedTags[i]);
-    if (!tagsEqual) setSelectedTags(tags);
-
-    if (m !== selectedMountId) setSelectedMountId(m);
-    if (p !== currentPage) setCurrentPage(p);
-  }, [currentQS]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // State -> URL（ユーザー操作の反映）
-  useEffect(() => {
-    if (desiredQS === currentQS) return;
-
-    lastWrittenQSRef.current = desiredQS;
-    const sp = new URLSearchParams(desiredQS);
-    setSearchParams(sp, { replace: true });
-  }, [desiredQS, currentQS, setSearchParams]);
-
-  const handleSearchChange = (val: string) => {
-    setSearchText(val);
-    setCurrentPage(1);
-  };
-
-  const handleToggleTag = (tag: string) => {
-    setSelectedTags((prev) => {
-      const next = prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag];
-      return sortedTags(next);
-    });
-    setCurrentPage(1);
-  };
-
-  const removeTag = (tagToRemove: string) => {
-    setSelectedTags((prev) => sortedTags(prev.filter((t) => t !== tagToRemove)));
-    setCurrentPage(1);
-  };
-
-  const clearAllTags = () => {
-    setSelectedTags([]);
-    setCurrentPage(1);
-  };
-
-  const clearSearch = () => {
-    setSearchText('');
-    setCurrentPage(1);
-  };
-
-  const clearMount = () => {
-    setSelectedMountId('');
-    setCurrentPage(1);
-  };
-
-  const resetAll = () => {
-    setSearchText('');
-    setSelectedTags([]);
-    setSelectedMountId('');
-    setCurrentPage(1);
-  };
-
-  const handleMountChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSelectedMountId(e.target.value);
-    setCurrentPage(1);
-  };
+  // Tag ranking should be computed from the full filtered dataset (NOT the current page)
+  const { ranking: tagRanking, isLoading: tagRankingLoading } = useTagRankingQuery({
+    favoritesOnly: false,
+    tagSort: settings.tagSort,
+  });
 
   return (
     <div className="flex flex-col h-full space-y-6 relative">
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+      <div className="flex flex-col xl:flex-row xl:items-start justify-between gap-4">
         <div>
           <h2 className="font-heading text-2xl font-bold">Library</h2>
           <p className="text-text-dim text-sm mt-1">{totalCount} videos found</p>
         </div>
 
-        <div className="w-full md:w-auto flex flex-col items-end gap-3">
-          <div className="flex flex-col md:flex-row gap-2 w-full md:w-auto">
+        <div className="flex flex-col gap-3 w-full xl:w-auto">
+          <div className="flex flex-col md:flex-row gap-2 w-full">
             {/* Mount Filter */}
-            <div className="relative w-full md:w-48">
+            <div className="relative w-full md:w-40 flex-shrink-0">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                 <RiHardDriveLine className="text-text-dim" style={{ color: selectedMount?.color }} />
               </div>
               <select
-                value={selectedMountId}
-                onChange={handleMountChange}
-                className="w-full bg-bg-panel border border-border text-text-main rounded-xl py-2.5 pl-10 pr-8 appearance-none focus:outline-none focus:border-accent/50 focus:ring-1 focus:ring-accent/50 transition-all text-sm shadow-sm cursor-pointer"
+                value={list.selectedMountId}
+                onChange={(e) => list.setSelectedMountId(e.target.value)}
+                className="w-full bg-bg-panel border border-border text-text-main rounded-xl py-2.5 pl-9 pr-8 appearance-none focus:outline-none focus:border-accent/50 text-sm shadow-sm cursor-pointer"
               >
                 <option value="">All Folders</option>
-                {mounts.map((mount) => (
-                  <option key={mount.id} value={mount.id}>
-                    {mount.name}
+                {mounts.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
                   </option>
                 ))}
               </select>
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                <svg className="w-4 h-4 text-text-dim" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                </svg>
+            </div>
+
+            {/* Sort / Duration / PageSize */}
+            <div className="flex gap-2 flex-wrap sm:flex-nowrap">
+              <div className="relative w-full sm:w-32 flex-shrink-0">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <RiSortDesc className="text-text-dim" />
+                </div>
+                <select
+                  value={list.sortOrder}
+                  onChange={(e) => list.setSortOrder(e.target.value as SortOption)}
+                  className="w-full bg-bg-panel border border-border text-text-main rounded-xl py-2.5 pl-9 pr-8 appearance-none focus:outline-none focus:border-accent/50 text-sm shadow-sm cursor-pointer"
+                >
+                  <option value="newest">Newest</option>
+                  <option value="oldest">Oldest</option>
+                </select>
+              </div>
+
+              <div className="relative w-full sm:w-28 flex-shrink-0">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <RiTimeLine className="text-text-dim" />
+                </div>
+                <select
+                  value={list.durationFilter}
+                  onChange={(e) => list.setDurationFilter(e.target.value as LenOption)}
+                  className="w-full bg-bg-panel border border-border text-text-main rounded-xl py-2.5 pl-9 pr-8 appearance-none focus:outline-none focus:border-accent/50 text-sm shadow-sm cursor-pointer"
+                >
+                  <option value="any">Any Len</option>
+                  <option value="0-5">0-5m</option>
+                  <option value="5-10">5-10m</option>
+                  <option value="10-30">10-30m</option>
+                  <option value="30-60">30-60m</option>
+                  <option value="60+">60m+</option>
+                </select>
+              </div>
+
+              <div className="relative w-full sm:w-20 flex-shrink-0">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <RiLayoutGridLine className="text-text-dim" />
+                </div>
+                <select
+                  value={list.pageSize}
+                  onChange={(e) => list.setPageSize(Number(e.target.value))}
+                  className="w-full bg-bg-panel border border-border text-text-main rounded-xl py-2.5 pl-9 pr-8 appearance-none focus:outline-none focus:border-accent/50 text-sm shadow-sm cursor-pointer"
+                >
+                  <option value="12">12</option>
+                  <option value="20">20</option>
+                  <option value="40">40</option>
+                </select>
               </div>
             </div>
 
             {/* Search Bar */}
-            <div className="flex gap-2 w-full md:w-80">
-              <SearchBar value={searchText} onChange={handleSearchChange} placeholder="Search..." className="flex-1" />
+            <div className="flex gap-2 flex-1 min-w-[200px]">
+              <SearchBar
+                value={list.searchText}
+                onChange={list.setSearchText}
+                placeholder="Search..."
+                className="flex-1"
+              />
               <button
                 type="button"
                 onClick={() => setDrawerOpen(true)}
@@ -210,9 +158,8 @@ const VideosPage: React.FC = () => {
         </div>
       </div>
 
-      <TagPinnedRow pinnedTags={settings.pinnedTags} selectedTags={selectedTags} onToggleTag={handleToggleTag} />
+      <TagPinnedRow pinnedTags={settings.pinnedTags} selectedTags={list.selectedTags} onToggleTag={list.toggleTag} />
 
-      {/* ★ ここから追加（警告 + ActiveFiltersBar） */}
       {mountsNeedRelink.length > 0 && (
         <div className="rounded-2xl border border-orange-500/20 bg-orange-500/10 px-4 py-3 text-sm text-orange-200">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -233,22 +180,17 @@ const VideosPage: React.FC = () => {
       )}
 
       <ActiveFiltersBar
-        searchText={searchText}
-        selectedTags={selectedTags}
-        mount={
-          selectedMount
-            ? { id: selectedMount.id, name: selectedMount.name, color: (selectedMount as any).color }
-            : null
-        }
-        currentPage={currentPage}
+        searchText={list.searchText}
+        selectedTags={list.selectedTags}
+        mount={selectedMount ? { id: selectedMount.id, name: selectedMount.name, color: selectedMount.color } : null}
+        currentPage={list.currentPage}
         totalPages={totalPages}
-        onClearSearch={clearSearch}
-        onRemoveTag={removeTag}
-        onClearTags={clearAllTags}
-        onClearMount={clearMount}
-        onResetAll={resetAll}
+        onClearSearch={() => list.setSearchText('')}
+        onRemoveTag={list.removeTag}
+        onClearTags={list.clearAllTags}
+        onClearMount={list.clearMount}
+        onResetAll={list.resetAll}
       />
-      {/* ★ ここまで追加 */}
 
       <div className="flex-1 min-h-0">
         {isLoading ? (
@@ -259,11 +201,7 @@ const VideosPage: React.FC = () => {
           <div className="h-64 flex flex-col items-center justify-center text-text-dim border-2 border-dashed border-border/50 rounded-2xl">
             <RiMovieLine className="text-5xl opacity-20 mb-4" />
             <p className="text-lg font-medium">No videos found</p>
-            {searchText || selectedTags.length > 0 || selectedMountId ? (
-              <p className="text-sm mt-2 opacity-60">Try adjusting your search or filters.</p>
-            ) : (
-              <p className="text-sm mt-2 opacity-60">Add folders in the Manage page to get started.</p>
-            )}
+            <p className="text-sm mt-2 opacity-60">Try adjusting your search or filters.</p>
           </div>
         ) : (
           <>
@@ -272,8 +210,7 @@ const VideosPage: React.FC = () => {
                 <VideoCard key={video.id} video={video} />
               ))}
             </div>
-
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+            <Pagination currentPage={list.currentPage} totalPages={totalPages} onPageChange={list.setCurrentPage} />
           </>
         )}
       </div>
@@ -281,9 +218,10 @@ const VideosPage: React.FC = () => {
       <TagDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        videos={videos}
-        activeTags={selectedTags}
-        onToggleTag={handleToggleTag}
+        ranking={tagRanking}
+        rankingLoading={tagRankingLoading}
+        activeTags={list.selectedTags}
+        onToggleTag={list.toggleTag}
         tagSort={settings.tagSort}
       />
     </div>

@@ -61,7 +61,7 @@ export const pageRegistry: PageDef[] = [
   },
   // Hidden routes
   {
-    path: "/video/:id",
+    path: "/video/:id/view",
     label: "Video Player",
     element: React.createElement(VideoDetailPage),
     isMenu: false

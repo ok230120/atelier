@@ -17,12 +17,17 @@ import {
   RiArrowGoBackLine,
   RiLoader4Line,
   RiCheckLine,
+  RiMovieFill,
 } from 'react-icons/ri';
 import classNames from 'classnames';
 import { db } from '../../db/client';
 import type { FolderMount, Video } from '../../types/domain';
 import { fileSystem } from '../../services/fileSystem';
 import { scanMount, type ScanStats } from '../../services/scanner';
+import DeleteVideoButton from './components/DeleteVideoButton';
+import InlineTitleEditor from '../../components/InlineTitleEditor';
+import { stripExt } from '../../utils/videoTitle';
+import { setVideoTitleOverride, clearVideoTitleOverride } from '../../services/videoMeta';
 
 // --- Helper Functions ---
 const normalizeTag = (tag: string): string => {
@@ -306,6 +311,46 @@ const ManagePage: React.FC = () => {
     });
   };
 
+  const actionDeleteVideos = async () => {
+    if (selectedIds.size === 0) return;
+    
+    const count = selectedIds.size;
+    const ok = window.confirm(`選択中の${count}件の動画を削除しますか？（元ファイルは消しません）`);
+    if (!ok) return;
+
+    setIsBulkProcessing(true);
+    setBulkProgress({ current: 0, total: count });
+
+    try {
+      const idsToDelete = Array.from(selectedIds);
+      
+      for (let i = 0; i < idsToDelete.length; i += BATCH_SIZE) {
+        const chunk = idsToDelete.slice(i, i + BATCH_SIZE);
+        await db.videos.bulkDelete(chunk);
+        
+        setBulkProgress({
+          current: Math.min(i + BATCH_SIZE, idsToDelete.length),
+          total: idsToDelete.length,
+        });
+        
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      // リストを再読み込み
+      if (editorMountId) {
+        await loadVideosForMount(editorMountId);
+      }
+      setSelectedIds(new Set());
+      alert(`${count}件の動画を削除しました。`);
+    } catch (err) {
+      console.error('Bulk delete failed:', err);
+      alert('削除中にエラーが発生しました。');
+    } finally {
+      setIsBulkProcessing(false);
+      setBulkProgress(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto pb-20 space-y-12">
       {/* --- Section 1: Manage Folders --- */}
@@ -537,6 +582,12 @@ const ManagePage: React.FC = () => {
               >
                 <RiEraserLine /> Clear Titles
               </button>
+              <button
+                onClick={actionDeleteVideos}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-bg-surface border border-red-500/30 rounded-lg text-xs text-red-400 hover:bg-red-500/10 hover:border-red-500 transition-colors"
+              >
+                <RiDeleteBinLine /> Delete
+              </button>
             </div>
 
             {/* Undo */}
@@ -587,10 +638,12 @@ const ManagePage: React.FC = () => {
                         onChange={toggleSelectAll}
                       />
                     </th>
+                    <th className="px-4 py-3 w-28">Thumb</th>
                     <th className="px-4 py-3">File / Path</th>
                     <th className="px-4 py-3">Tags</th>
                     <th className="px-4 py-3 text-center w-20">Fav</th>
                     <th className="px-4 py-3 text-center w-20">Title Set</th>
+                    <th className="px-4 py-3 text-center w-24">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
@@ -599,9 +652,10 @@ const ManagePage: React.FC = () => {
                     return (
                       <tr
                         key={video.id}
-                        className={classNames('hover:bg-bg-surface/50 transition-colors', isSelected && 'bg-accent/5')}
+                        className={classNames('hover:bg-bg-surface/50 transition-colors cursor-pointer', isSelected && 'bg-accent/5')}
+                        onClick={() => toggleSelection(video.id)}
                       >
-                        <td className="px-4 py-3 text-center">
+                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                           <input
                             type="checkbox"
                             className="rounded bg-bg border-border text-accent focus:ring-0"
@@ -610,13 +664,29 @@ const ManagePage: React.FC = () => {
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex flex-col">
-                            <span className="font-medium text-text-main truncate max-w-xs xl:max-w-md" title={video.filename}>
-                              {video.filename}
-                            </span>
-                            <span className="text-xs text-text-dim truncate max-w-xs xl:max-w-md" title={video.relativePath}>
-                              {video.relativePath}
-                            </span>
+                          <div className="w-24 aspect-video rounded-lg overflow-hidden border border-border bg-bg-surface flex items-center justify-center flex-shrink-0">
+                            {video.thumbnail ? (
+                              <img
+                                src={video.thumbnail}
+                                alt=""
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                                decoding="async"
+                              />
+                            ) : (
+                              <RiMovieFill className="text-2xl text-text-dim opacity-30" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                          <div className="min-w-[200px] max-w-md whitespace-normal break-words line-clamp-2">
+                            <InlineTitleEditor
+                              compact
+                              value={video.titleOverride}
+                              fallback={stripExt(video.filename)}
+                              onSave={(t) => setVideoTitleOverride(video.id, t)}
+                              onClear={() => clearVideoTitleOverride(video.id)}
+                            />
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -637,6 +707,16 @@ const ManagePage: React.FC = () => {
                         </td>
                         <td className="px-4 py-3 text-center">
                           {video.titleOverride ? <RiCheckLine className="inline text-accent" /> : <span className="text-text-dim">-</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                          <DeleteVideoButton
+                            videoId={video.id}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs border border-border hover:border-red-500/40 hover:text-red-400 transition-colors"
+                            onDeleted={() => {
+                              if (editorMountId) loadVideosForMount(editorMountId);
+                            }}
+                            stopPropagation={true}
+                          />
                         </td>
                       </tr>
                     );

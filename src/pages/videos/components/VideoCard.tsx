@@ -29,7 +29,7 @@ const VideoCard: React.FC<VideoCardProps> = ({ video, className }) => {
   const durationStr = formatDuration(video.durationSec);
 
   // 一覧の ?tag=... 等を詳細にも引き継ぐ
-  const toDetail = `/video/${video.id}${location.search}`;
+  const toDetail = `/video/${encodeURIComponent(video.id)}/view${location.search}`;
 
   const tags = video.tags ?? [];
 

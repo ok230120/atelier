@@ -12,6 +12,7 @@ import {
   RiLoader4Line,
   RiMovieFill,
   RiSpeedLine,
+  RiRotateLockLine,
 } from 'react-icons/ri';
 
 import { db } from '../../db/client';
@@ -36,6 +37,7 @@ const VideoDetailPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [permissionNeeded, setPermissionNeeded] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [rotation, setRotation] = useState(0);
   // 既存タグを一覧で選ぶ Drawer
   const [tagDrawerOpen, setTagDrawerOpen] = useState(false);
 
@@ -122,6 +124,10 @@ const VideoDetailPage: React.FC = () => {
     if (!video) return;
     await db.videos.update(video.id, { favorite: !video.favorite });
   };
+
+  const handleRotate = () => {
+    setRotation((prev) => (prev + 90) % 360);
+  };
 
   const handleThumbnailChange = async (dataUrl: string | null) => {
     if (!video) return;
@@ -211,6 +217,15 @@ const VideoDetailPage: React.FC = () => {
             {video.favorite ? <RiHeart3Fill /> : <RiHeart3Line />}
             <span>{video.favorite ? 'Favorited' : 'Favorite'}</span>
           </button>
+          {/* Rotate Button */}
+          <button
+            onClick={handleRotate}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium transition-all border bg-bg-panel text-text-muted border-border hover:border-text-dim hover:text-text-main"
+            title={`Rotate ${rotation}°`}
+          >
+            <RiRotateLockLine />
+            <span>{rotation}°</span>
+          </button>
         </div>
       </div>
 
@@ -230,24 +245,33 @@ const VideoDetailPage: React.FC = () => {
               <p>{loadError}</p>
             </div>
           ) : videoSrc ? (
-            <video
-              ref={videoRef}
-              src={videoSrc}
-              controls
-              autoPlay={false}
-              className="w-full h-full max-h-full object-contain outline-none"
-              onLoadedMetadata={(e) => {
-                // 再生速度を維持
-                e.currentTarget.playbackRate = playbackRate;
+            <div
+              className="flex items-center justify-center"
+              style={{
+                transform: `rotate(${rotation}deg)`,
+                width: rotation % 180 === 90 ? '80vh' : '100%',
+                height: rotation % 180 === 90 ? '80vh' : '100%',
+              }}
+            >
+              <video
+                ref={videoRef}
+                src={videoSrc}
+                controls
+                autoPlay={false}
+                className="w-full h-full object-contain outline-none"
+                onLoadedMetadata={(e) => {
+                  // 再生速度を維持
+                  e.currentTarget.playbackRate = playbackRate;
 
-                if (!video.durationSec) {
-                  db.videos.update(video.id, {
-                    durationSec: e.currentTarget.duration,
-                  });
-                }
-              }}
-            />
-          ) : (
+                  if (!video.durationSec) {
+                    db.videos.update(video.id, {
+                      durationSec: e.currentTarget.duration,
+                    });
+                  }
+                }}
+              />
+            </div>
+          ) : (
             <RiLoader4Line className="animate-spin text-4xl text-text-dim" />
           )}
         </div>

@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { pageRegistry } from './pages/registry';
 import Sidebar from './components/Sidebar';
 import Topbar from './components/Topbar';
-import HintBar from './components/HintBar';
 
 function App() {
   return (
@@ -28,7 +27,7 @@ function App() {
             </Routes>
           </main>
 
-          <HintBar />
+          
         </div>
       </div>
     </BrowserRouter>

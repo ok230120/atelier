@@ -1,3 +1,4 @@
+// FILE: src/pages/registry.ts
 import React, { ReactNode } from 'react';
 import { 
   RiHome5Line, 

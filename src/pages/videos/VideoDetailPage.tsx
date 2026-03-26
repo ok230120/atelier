@@ -1,7 +1,7 @@
 // FILE: src/pages/videos/VideoDetailPage.tsx
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import classNames from 'classnames';
 import {
@@ -28,6 +28,7 @@ import { setVideoTitleOverride, clearVideoTitleOverride } from '../../services/v
 
 const VideoDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // 現在のBlob URLを保持(再生成時にrevokeする)
@@ -178,13 +179,14 @@ const VideoDetailPage: React.FC = () => {
     <div className="h-full flex flex-col overflow-hidden">
       {/* Top Mini Bar */}
       <div className="h-12 border-b border-border bg-bg-surface flex items-center justify-between px-6 flex-shrink-0 z-10">
-        <Link
-          to="/videos"
-          className="flex items-center gap-2 text-sm text-text-muted hover:text-text-main transition-colors"
-        >
-          <RiArrowLeftLine />
-          <span>Library</span>
-        </Link>
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-sm text-text-muted hover:text-text-main transition-colors"
+        >
+          <RiArrowLeftLine />
+          <span>Back</span>
+        </button>
 
         <div className="flex items-center gap-4">
           {/* Playback Speed */}

@@ -2,7 +2,7 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/schema';
-import type { Novel, NovelSortOption } from '../types/domain';
+import type { NovelSortOption } from '../types/domain';
 
 interface UseNovelsQueryParams {
   searchText?: string;

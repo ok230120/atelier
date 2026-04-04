@@ -12,7 +12,7 @@ import {
   RiRefreshLine,
 } from 'react-icons/ri';
 import { db } from '../../../db/schema';
-import { renameTag, deleteTag, mergeTags, getPinnedTags, setPinnedTags } from '../../../services/tagService';
+import { renameTag, deleteTag, mergeTags, setPinnedTags } from '../../../services/tagService';
 import TagChip from '../../../components/TagChip';
 
 const TagManager: React.FC = () => {

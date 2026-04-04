@@ -7,7 +7,6 @@ import {
   RiDeleteBinLine,
   RiCheckLine,
   RiCloseLine,
-  RiDraggable,
   RiArrowUpLine,
   RiArrowDownLine,
   RiEyeLine,

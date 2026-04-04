@@ -8,7 +8,7 @@ import {
   RiLinkM,
 } from 'react-icons/ri';
 import type { QuadrantSetting } from '../../../types/domain';
-import { compressImage, urlToDataUrl } from '../../../utils/imageCompressor';
+import { compressImage } from '../../../utils/imageCompressor';
 
 interface QuadrantSettingEditorProps {
   settings: QuadrantSetting[];
@@ -21,7 +21,6 @@ const QuadrantSettingEditor: React.FC<QuadrantSettingEditorProps> = ({
   onChange,
   totalWordCount,
 }) => {
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [newSetting, setNewSetting] = useState<Partial<QuadrantSetting>>({
     slot: 'LT',
     startChar: 0,

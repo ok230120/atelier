@@ -5,10 +5,11 @@ import {
   RiMovie2Line,
   RiFolderSettingsLine,
   RiHeart3Line,
+  RiImageAddLine,
+  RiPriceTag3Line,
   RiSettings4Line,
   RiBookOpenLine,
-  RiFileListLine,
-  RiHeart3Fill,
+  RiImageLine,
 } from 'react-icons/ri';
 
 // 既存のインポート
@@ -26,6 +27,12 @@ import NovelReaderPage from './novels/NovelReaderPage';
 import NovelManagePage from './novels/NovelManagePage';
 import SeriesDetailPage from './novels/SeriesDetailPage';
 import NovelFavoritesPage from './novels/NovelFavoritesPage';
+import ImagesPage from './images/ImagesPage';
+import ImageDetailPage from './images/ImageDetailPage';
+import ImageManagePage from './images/ImageManagePage';
+import ImageImportPage from './images/ImageImportPage';
+import ImageTaggingPage from './images/ImageTaggingPage';
+import ImageTagsPage from './images/ImageTagsPage';
 
 export type PageDef = {
   path: string;
@@ -72,6 +79,13 @@ export const pageRegistry: PageDef[] = [
     isMenu: true,
   },
   {
+    path: '/images',
+    label: 'Images',
+    icon: RiImageLine,
+    element: React.createElement(ImagesPage),
+    isMenu: true,
+  },
+  {
     path: '/favorites',
     label: 'Favorites',
     icon: RiHeart3Line,
@@ -97,6 +111,40 @@ export const pageRegistry: PageDef[] = [
     path: '/video/:id/view',
     label: 'Video Player',
     element: React.createElement(VideoDetailPage),
+    isMenu: false,
+  },
+  {
+    path: '/images/manage',
+    label: 'Image Manage',
+    icon: RiFolderSettingsLine,
+    element: React.createElement(ImageManagePage),
+    isMenu: true,
+  },
+  {
+    path: '/images/import',
+    label: 'Image Import',
+    icon: RiImageAddLine,
+    element: React.createElement(ImageImportPage),
+    isMenu: true,
+  },
+  {
+    path: '/images/tagging',
+    label: 'Tagging',
+    icon: RiPriceTag3Line,
+    element: React.createElement(ImageTaggingPage),
+    isMenu: true,
+  },
+  {
+    path: '/images/tags',
+    label: 'Tags',
+    icon: RiPriceTag3Line,
+    element: React.createElement(ImageTagsPage),
+    isMenu: true,
+  },
+  {
+    path: '/images/view/:id',
+    label: 'Image Detail',
+    element: React.createElement(ImageDetailPage),
     isMenu: false,
   },
   {

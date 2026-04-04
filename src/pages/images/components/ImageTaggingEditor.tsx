@@ -53,7 +53,9 @@ export default function ImageTaggingEditor({
 
     void getImageFileUrl(detail.image).then((url) => {
       if (!active) {
-        if (url) URL.revokeObjectURL(url);
+        if (url) {
+          URL.revokeObjectURL(url);
+        }
         return;
       }
 
@@ -63,7 +65,9 @@ export default function ImageTaggingEditor({
 
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
     };
   }, [detail]);
 
@@ -72,27 +76,34 @@ export default function ImageTaggingEditor({
   const normalizedQuery = normalizeImageTagName(query);
   const exactMatch = allTags.find((tag) => tag.normalizedName === normalizedQuery);
   const canCreate = normalizedQuery.length > 0 && !exactMatch && !!newTagCategoryId;
+  const isSearching = normalizedQuery.length > 0;
 
   const filteredTags = useMemo(() => {
     return allTags.filter((tag) => {
-      if (activeCategoryId !== 'ALL' && tag.categoryId !== activeCategoryId) return false;
-      if (!normalizedQuery) return true;
+      if (activeCategoryId !== 'ALL' && tag.categoryId !== activeCategoryId) {
+        return false;
+      }
+      if (!normalizedQuery) {
+        return true;
+      }
       return tag.normalizedName.includes(normalizedQuery);
     });
   }, [activeCategoryId, allTags, normalizedQuery]);
 
-  const visibleCategories = useMemo(() => {
-    if (activeCategoryId !== 'ALL') {
-      return categories.filter((category) => category.id === activeCategoryId);
+  const activeCategoryLabel = useMemo(() => {
+    if (isSearching) {
+      return '検索結果';
     }
-
-    return categories.filter((category) =>
-      filteredTags.some((tag) => tag.categoryId === category.id),
-    );
-  }, [activeCategoryId, categories, filteredTags]);
+    if (activeCategoryId === 'ALL') {
+      return 'すべてのタグ';
+    }
+    return categories.find((category) => category.id === activeCategoryId)?.name ?? 'タグ';
+  }, [activeCategoryId, categories, isSearching]);
 
   const handleCreate = async () => {
-    if (!canCreate || busy) return;
+    if (!canCreate || busy) {
+      return;
+    }
     await onCreateTag(query.trim(), newTagCategoryId);
     setQuery('');
   };
@@ -171,10 +182,7 @@ export default function ImageTaggingEditor({
           </div>
 
           <div className="mt-5">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-xs text-text-dim">手動タグ</p>
-            </div>
-
+            <p className="mb-3 text-xs text-text-dim">手動タグ</p>
             {detail.manualTags.length === 0 ? (
               <p className="text-xs text-text-dim">まだ表示中の手動タグはありません</p>
             ) : (
@@ -189,7 +197,7 @@ export default function ImageTaggingEditor({
                     {tag.name}
                     <RiCloseLine
                       size={12}
-                      className="opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
+                      className="opacity-0 transition-all group-hover:opacity-100 hover:text-red-400"
                     />
                   </button>
                 ))}
@@ -269,66 +277,67 @@ export default function ImageTaggingEditor({
               </div>
             )}
 
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setActiveCategoryId('ALL')}
-                className={
-                  activeCategoryId === 'ALL'
-                    ? 'rounded-full bg-accent px-3 py-1 text-xs text-white'
-                    : 'rounded-full bg-bg-surface px-3 py-1 text-xs text-text-muted transition-colors hover:text-text-main'
-                }
-              >
-                すべて
-              </button>
-              {categories.map((category) => (
+            <div className="mt-4 rounded-2xl border border-border/60 bg-bg-surface/45 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <p className="text-[11px] uppercase tracking-[0.18em] text-text-dim">カテゴリ</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
                 <button
-                  key={category.id}
                   type="button"
-                  onClick={() => setActiveCategoryId(category.id)}
+                  onClick={() => setActiveCategoryId('ALL')}
                   className={
-                    activeCategoryId === category.id
-                      ? 'rounded-full bg-accent px-3 py-1 text-xs text-white'
-                      : 'rounded-full bg-bg-surface px-3 py-1 text-xs text-text-muted transition-colors hover:text-text-main'
+                    activeCategoryId === 'ALL'
+                      ? 'min-h-[42px] rounded-xl border border-accent/50 bg-accent/15 px-3 py-2 text-center text-xs font-medium text-accent shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)]'
+                      : 'min-h-[42px] rounded-xl border border-transparent bg-bg-panel px-3 py-2 text-center text-xs text-text-dim transition-colors hover:border-border hover:text-text-main'
                   }
                 >
-                  {category.name}
+                  <span className="block truncate whitespace-nowrap">すべて</span>
                 </button>
-              ))}
+                {categories.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => setActiveCategoryId(category.id)}
+                    className={
+                      activeCategoryId === category.id
+                        ? 'min-h-[42px] rounded-xl border border-accent/50 bg-accent/15 px-3 py-2 text-center text-xs font-medium text-accent shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)]'
+                        : 'min-h-[42px] rounded-xl border border-transparent bg-bg-panel px-3 py-2 text-center text-xs text-text-dim transition-colors hover:border-border hover:text-text-main'
+                    }
+                  >
+                    <span className="block truncate whitespace-nowrap">{category.name}</span>
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <div className="mt-4 space-y-4">
-              {visibleCategories.map((category) => {
-                const categoryTags = filteredTags.filter((tag) => tag.categoryId === category.id);
-                if (categoryTags.length === 0) return null;
+            <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-4">
+              <div className="mb-3 flex items-end justify-between gap-3">
+                <p className="text-sm font-medium text-text-main">{activeCategoryLabel}</p>
+                <p className="text-[11px] text-text-dim">{filteredTags.length}件</p>
+              </div>
 
-                return (
-                  <div key={category.id}>
-                    <p className="mb-2 text-xs tracking-wider text-text-dim">{category.name}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {categoryTags.map((tag) => {
-                        const disabled = currentTagSet.has(tag.id) || busy;
-                        return (
-                          <button
-                            key={tag.id}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => void onAddTag(tag.id)}
-                            className={
-                              disabled
-                                ? 'cursor-default rounded-full border border-accent/40 bg-accent/20 px-3 py-1.5 text-xs text-accent'
-                                : 'rounded-full border border-border bg-bg-surface px-3 py-1.5 text-xs text-text-muted transition-all hover:border-accent/50 hover:text-text-main'
-                            }
-                          >
-                            {tag.name}
-                            <span className="ml-1 opacity-60">{tag.usageCount}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
+              <div className="flex flex-wrap gap-1.5">
+                {filteredTags.map((tag) => {
+                  const disabled = currentTagSet.has(tag.id) || busy;
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => void onAddTag(tag.id)}
+                      className={
+                        disabled
+                          ? 'cursor-default rounded-full border border-accent/40 bg-accent/20 px-3 py-1.5 text-xs text-accent'
+                          : 'rounded-full border border-border bg-bg-surface px-3 py-1.5 text-xs text-text-muted transition-all hover:border-accent/50 hover:text-text-main'
+                      }
+                    >
+                      {tag.name}
+                      <span className="ml-1 opacity-60">{tag.usageCount}</span>
+                    </button>
+                  );
+                })}
+              </div>
 
               {filteredTags.length === 0 && !canCreate && (
                 <p className="py-4 text-center text-sm text-text-dim">一致するタグがありません</p>

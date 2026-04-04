@@ -121,7 +121,7 @@ export default function ImageTaggingEditor({
 
   return (
     <section className="flex h-full min-h-0 flex-col rounded-2xl border border-border bg-bg-panel">
-      <div className="border-b border-border px-5 py-4">
+      <div className="border-b border-border px-5 py-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <h2 className="truncate font-heading text-lg text-text-main">{detail.image.fileName}</h2>
@@ -162,7 +162,7 @@ export default function ImageTaggingEditor({
           )}
         </div>
 
-        <div className="flex min-h-0 flex-col overflow-y-auto border-l border-border p-5">
+        <div className="flex min-h-0 flex-col overflow-y-auto border-l border-border px-5 py-4">
           <div>
             <p className="mb-2 text-xs text-text-dim">自動タグ</p>
             <div className="flex flex-wrap gap-2">
@@ -181,7 +181,7 @@ export default function ImageTaggingEditor({
             </div>
           </div>
 
-          <div className="mt-5">
+          <div className="mt-4">
             <p className="mb-3 text-xs text-text-dim">手動タグ</p>
             {detail.manualTags.length === 0 ? (
               <p className="text-xs text-text-dim">まだ表示中の手動タグはありません</p>
@@ -206,7 +206,7 @@ export default function ImageTaggingEditor({
           </div>
 
           {recentTags.length > 0 && (
-            <div className="mt-5 border-t border-border pt-5">
+            <div className="mt-4 border-t border-border pt-4">
               <p className="mb-2 text-xs text-text-dim">最近使ったタグ</p>
               <div className="flex flex-wrap gap-2">
                 {recentTags.map((tag) => {
@@ -231,7 +231,7 @@ export default function ImageTaggingEditor({
             </div>
           )}
 
-          <div className="mt-5">
+          <div className="mt-4">
             <p className="mb-3 text-xs text-text-dim">タグ候補</p>
 
             <div className="flex items-center gap-2 rounded-xl border border-border bg-bg-surface px-3 py-2">
@@ -311,7 +311,7 @@ export default function ImageTaggingEditor({
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-4">
+            <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-3">
               <div className="mb-3 flex items-end justify-between gap-3">
                 <p className="text-sm font-medium text-text-main">{activeCategoryLabel}</p>
                 <p className="text-[11px] text-text-dim">{filteredTags.length}件</p>
@@ -345,7 +345,7 @@ export default function ImageTaggingEditor({
             </div>
           </div>
 
-          {error && <p className="mt-5 text-sm text-red-300">{error}</p>}
+          {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
         </div>
       </div>
     </section>

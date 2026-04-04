@@ -9,8 +9,8 @@ export default function ImageTaggingPage() {
   const session = useImageTaggingSession();
 
   return (
-    <div className="flex h-full min-h-[calc(100vh-64px)] flex-col p-6">
-      <div className="mb-5 flex items-center gap-3">
+    <div className="flex h-full min-h-[calc(100vh-64px)] flex-col px-6 py-4">
+      <div className="mb-4 flex items-center gap-3">
         <button
           type="button"
           onClick={() => navigate('/images')}

@@ -39,6 +39,8 @@ export type AppSettings = {
     usedAt: number;
   }>;
   imageImportRecentTagIds?: string[];
+  taggingDismissedImageIds?: string[];
+  taggingPendingImageIds?: string[];
 };
 
 export type FolderMount = {

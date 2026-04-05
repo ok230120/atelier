@@ -108,6 +108,41 @@ export default function ImageTaggingEditor({
     setQuery('');
   };
 
+  const tagResultsSection = (
+    <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-3">
+      <div className="mb-3 flex items-end justify-between gap-3">
+        <p className="text-sm font-medium text-text-main">{activeCategoryLabel}</p>
+        <p className="text-[11px] text-text-dim">{filteredTags.length}莉ｶ</p>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {filteredTags.map((tag) => {
+          const disabled = currentTagSet.has(tag.id) || busy;
+          return (
+            <button
+              key={tag.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => void onAddTag(tag.id)}
+              className={
+                disabled
+                  ? 'cursor-default rounded-full border border-accent/40 bg-accent/20 px-3 py-1.5 text-xs text-accent'
+                  : 'rounded-full border border-border bg-bg-surface px-3 py-1.5 text-xs text-text-muted transition-all hover:border-accent/50 hover:text-text-main'
+              }
+            >
+              {tag.name}
+              <span className="ml-1 opacity-60">{tag.usageCount}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {filteredTags.length === 0 && !canCreate && (
+        <p className="py-4 text-center text-sm text-text-dim">荳閾ｴ縺吶ｋ繧ｿ繧ｰ縺後≠繧翫∪縺帙ｓ</p>
+      )}
+    </div>
+  );
+
   if (!detail) {
     return (
       <section className="flex h-full min-h-0 flex-col items-center justify-center rounded-2xl border border-border bg-bg-panel p-6 text-center">
@@ -247,6 +282,16 @@ export default function ImageTaggingEditor({
                 placeholder="タグを検索"
                 className="flex-1 bg-transparent text-sm text-text-main outline-none placeholder:text-text-dim"
               />
+              {query.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setQuery('')}
+                  aria-label="検索をクリア"
+                  className="rounded-md p-1 text-text-dim transition-colors hover:text-text-main"
+                >
+                  <RiCloseLine size={14} />
+                </button>
+              )}
             </div>
 
             {canCreate && (
@@ -277,6 +322,8 @@ export default function ImageTaggingEditor({
               </div>
             )}
 
+            {isSearching && tagResultsSection}
+
             <div className="mt-4 rounded-2xl border border-border/60 bg-bg-surface/45 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <p className="text-[11px] uppercase tracking-[0.18em] text-text-dim">カテゴリ</p>
@@ -288,8 +335,8 @@ export default function ImageTaggingEditor({
                   onClick={() => setActiveCategoryId('ALL')}
                   className={
                     activeCategoryId === 'ALL'
-                      ? 'min-h-[42px] rounded-xl border border-accent/50 bg-accent/15 px-3 py-2 text-center text-xs font-medium text-accent shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)]'
-                      : 'min-h-[42px] rounded-xl border border-transparent bg-bg-panel px-3 py-2 text-center text-xs text-text-dim transition-colors hover:border-border hover:text-text-main'
+                      ? 'min-h-[34px] rounded-xl border border-accent/50 bg-accent/15 px-3 py-1.5 text-center text-xs font-medium text-white shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)]'
+                      : 'min-h-[34px] rounded-xl border border-transparent bg-bg-panel px-3 py-1.5 text-center text-xs text-white transition-colors hover:border-border hover:text-white'
                   }
                 >
                   <span className="block truncate whitespace-nowrap">すべて</span>
@@ -301,8 +348,8 @@ export default function ImageTaggingEditor({
                     onClick={() => setActiveCategoryId(category.id)}
                     className={
                       activeCategoryId === category.id
-                        ? 'min-h-[42px] rounded-xl border border-accent/50 bg-accent/15 px-3 py-2 text-center text-xs font-medium text-accent shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)]'
-                        : 'min-h-[42px] rounded-xl border border-transparent bg-bg-panel px-3 py-2 text-center text-xs text-text-dim transition-colors hover:border-border hover:text-text-main'
+                        ? 'min-h-[34px] rounded-xl border border-accent/50 bg-accent/15 px-3 py-1.5 text-center text-xs font-medium text-white shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)]'
+                        : 'min-h-[34px] rounded-xl border border-transparent bg-bg-panel px-3 py-1.5 text-center text-xs text-white transition-colors hover:border-border hover:text-white'
                     }
                   >
                     <span className="block truncate whitespace-nowrap">{category.name}</span>

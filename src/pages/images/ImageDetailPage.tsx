@@ -76,7 +76,6 @@ export default function ImageDetailPage() {
   const handleAddTag = async (tag: ImageTagRecord) => {
     if (!image) return;
     await addTagsToImages([image.id], [tag.id]);
-    setShowTagPanel(false);
     await load();
   };
 

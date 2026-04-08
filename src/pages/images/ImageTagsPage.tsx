@@ -13,12 +13,14 @@ import {
 } from 'react-icons/ri';
 import type { ImageTagCategoryRecord, ImageTagRecord } from '../../types/domain';
 import {
+  backfillImageTagReadings,
   createImageTagCategory,
   deleteImageTag,
   deleteImageTagCategory,
   isAutoImageTag,
   listImageTagCategories,
   listImageTags,
+  matchesImageTagSearch,
   mergeImageTags,
   moveImageTagToCategory,
   normalizeImageTagName,
@@ -56,6 +58,7 @@ export default function ImageTagsPage() {
 
   useEffect(() => {
     void refresh();
+    void backfillImageTagReadings().then(() => refresh()).catch(() => undefined);
   }, []);
 
   const categoryMap = useMemo(
@@ -68,8 +71,7 @@ export default function ImageTagsPage() {
     return tags.filter((tag) => {
       if (!showAutoTags && isAutoImageTag(tag)) return false;
       if (categoryFilterId !== 'all' && tag.categoryId !== categoryFilterId) return false;
-      if (!normalizedQuery) return true;
-      return tag.normalizedName.includes(normalizedQuery);
+      return matchesImageTagSearch(tag, query, normalizedQuery);
     });
   }, [categoryFilterId, query, showAutoTags, tags]);
 

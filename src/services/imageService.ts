@@ -1,9 +1,11 @@
+import * as kuromoji from '@patdx/kuromoji';
 import { db } from '../db/client';
 import {
   DEFAULT_IMAGE_TAG_CATEGORY_DEFINITIONS,
   DEFAULT_IMAGE_TAG_CATEGORY_ID,
 } from '../types/domain';
 import type {
+  AppSettings,
   ImageMount,
   ImageRecord,
   ImageTagCategoryRecord,
@@ -11,6 +13,8 @@ import type {
 } from '../types/domain';
 
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp']);
+const KUROMOJI_DICT_BASE_URL = 'https://cdn.jsdelivr.net/npm/@aiktb/kuromoji@1.0.2/dict/';
+const IMAGE_TAG_READINGS_BACKFILL_BATCH_SIZE = 24;
 
 type DirectoryEntry = FileSystemHandle & {
   values?: () => AsyncIterable<FileSystemHandle>;
@@ -55,6 +59,9 @@ export type ImageTaggingMeta = {
   manualTags: ImageTagRecord[];
 };
 
+let imageTagTokenizerPromise: Promise<any> | null = null;
+let imageTagReadingsBackfillPromise: Promise<void> | null = null;
+
 function uniqueTagIds(tagIds: string[]) {
   return Array.from(new Set(tagIds.filter(Boolean)));
 }
@@ -80,6 +87,85 @@ export function normalizeImageTagName(name: string) {
     .normalize('NFKC')
     .replace(/[ァ-ヴ]/g, (char) => String.fromCharCode(char.charCodeAt(0) - 0x60))
     .replace(/ー/g, '');
+}
+
+function getAppSettingsDefaults(): AppSettings {
+  return {
+    id: 'app',
+    schemaVersion: 1,
+    pinnedTags: [],
+    tagSort: 'popular',
+    filterMode: 'AND',
+    thumbStore: 'idb',
+  };
+}
+
+async function getAppSettings(): Promise<AppSettings> {
+  return (await db.settings.get('app')) ?? getAppSettingsDefaults();
+}
+
+function normalizeImageTagReading(value: string | undefined) {
+  if (!value) return '';
+  return normalizeImageTagName(value);
+}
+
+async function getImageTagTokenizer() {
+  if (!imageTagTokenizerPromise) {
+    imageTagTokenizerPromise = new kuromoji.TokenizerBuilder({
+      loader: {
+        async loadArrayBuffer(url: string): Promise<ArrayBufferLike> {
+          const response = await fetch(`${KUROMOJI_DICT_BASE_URL}${url.replace('.gz', '')}`);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch kuromoji dictionary: ${url}`);
+          }
+          return response.arrayBuffer();
+        },
+      },
+    }).build();
+  }
+
+  return imageTagTokenizerPromise;
+}
+
+export async function generateImageTagSearchReadings(name: string): Promise<string[]> {
+  const trimmedName = name.trim();
+  if (!trimmedName) return [];
+
+  try {
+    const tokenizer = await getImageTagTokenizer();
+    const readings = new Set<string>();
+
+    for (const token of tokenizer.tokenize(trimmedName)) {
+      const candidates = [
+        normalizeImageTagReading(token.reading),
+        normalizeImageTagReading(token.pronunciation),
+      ];
+      for (const candidate of candidates) {
+        if (candidate) readings.add(candidate);
+      }
+    }
+
+    return Array.from(readings);
+  } catch (error) {
+    console.warn('[image-tags] failed to generate search readings', { name: trimmedName, error });
+    return [];
+  }
+}
+
+export function matchesImageTagSearch(
+  tag: Pick<ImageTagRecord, 'name' | 'normalizedName' | 'searchReadings'>,
+  query: string,
+  normalizedQuery?: string,
+) {
+  const trimmedQuery = query.trim().toLowerCase();
+  const normalized = normalizedQuery ?? normalizeImageTagName(query);
+  if (!trimmedQuery && !normalized) return true;
+
+  return (
+    tag.name.toLowerCase().includes(trimmedQuery) ||
+    tag.normalizedName.includes(normalized) ||
+    (tag.searchReadings ?? []).some((reading) => reading.includes(normalized))
+  );
 }
 
 export function getImageManualTagIds(image: ImageRecord): string[] {
@@ -238,6 +324,43 @@ export async function listImageTags(): Promise<ImageTagRecord[]> {
   return db.imageTags.orderBy('usageCount').reverse().toArray();
 }
 
+export async function backfillImageTagReadings(): Promise<void> {
+  if (imageTagReadingsBackfillPromise) {
+    return imageTagReadingsBackfillPromise;
+  }
+
+  imageTagReadingsBackfillPromise = (async () => {
+    const settings = await getAppSettings();
+    if (settings.imageTagReadingsBackfillDoneAt) {
+      return;
+    }
+
+    while (true) {
+      const missingTags = (await db.imageTags.toArray())
+        .filter((tag) => !Array.isArray(tag.searchReadings) || tag.searchReadings.length === 0)
+        .slice(0, IMAGE_TAG_READINGS_BACKFILL_BATCH_SIZE);
+
+      if (missingTags.length === 0) {
+        const latestSettings = await getAppSettings();
+        await db.settings.put({
+          ...latestSettings,
+          imageTagReadingsBackfillDoneAt: Date.now(),
+        });
+        return;
+      }
+
+      for (const tag of missingTags) {
+        const searchReadings = await generateImageTagSearchReadings(tag.name);
+        await db.imageTags.update(tag.id, { searchReadings });
+      }
+    }
+  })().finally(() => {
+    imageTagReadingsBackfillPromise = null;
+  });
+
+  return imageTagReadingsBackfillPromise;
+}
+
 export async function listManualImageTags(): Promise<ImageTagRecord[]> {
   const tags = await listImageTags();
   return tags.filter((tag) => !tag.isAuto);
@@ -293,10 +416,20 @@ export async function getOrCreateImageTag(
   const normalizedName = normalizeImageTagName(trimmedName);
   const existing = await db.imageTags.where('normalizedName').equals(normalizedName).first();
   if (existing) {
+    const nextSearchReadings =
+      Array.isArray(existing.searchReadings) && existing.searchReadings.length > 0
+        ? existing.searchReadings
+        : await generateImageTagSearchReadings(existing.name);
+
     if (options?.isAuto && !existing.isAuto) {
       // Keep the existing category when a manual tag later becomes
       // reused as a folder-derived auto tag.
-      const nextTag = { ...existing, isAuto: true };
+      const nextTag = { ...existing, isAuto: true, searchReadings: nextSearchReadings };
+      await db.imageTags.put(nextTag);
+      return nextTag;
+    }
+    if (nextSearchReadings !== existing.searchReadings) {
+      const nextTag = { ...existing, searchReadings: nextSearchReadings };
       await db.imageTags.put(nextTag);
       return nextTag;
     }
@@ -308,6 +441,7 @@ export async function getOrCreateImageTag(
     id: crypto.randomUUID(),
     name: trimmedName,
     normalizedName,
+    searchReadings: await generateImageTagSearchReadings(trimmedName),
     categoryId: categoryId || fallbackCategoryId,
     isAuto: options?.isAuto === true,
     createdAt: Date.now(),
@@ -335,6 +469,7 @@ export async function renameImageTag(tagId: string, nextName: string): Promise<v
   await db.imageTags.update(tagId, {
     name: trimmedName,
     normalizedName,
+    searchReadings: await generateImageTagSearchReadings(trimmedName),
   });
 }
 

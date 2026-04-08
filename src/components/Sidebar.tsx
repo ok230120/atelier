@@ -31,7 +31,13 @@ export function Sidebar({ isOverlay = false, isOpen = true, onToggle }: SidebarP
 
   const videoSubPaths = ['/favorites', '/manage', '/settings'];
   const novelSubPaths = ['/novels/favorites', '/novels/manage'];
-  const imageSubPaths = ['/images/tagging', '/images/import', '/images/tags', '/images/manage'];
+  const imageSubPaths = [
+    '/images/tagging',
+    '/images/tagging/completed',
+    '/images/import',
+    '/images/tags',
+    '/images/manage',
+  ];
 
   const homeItem = menuItems.find((page) => page.path === homePath);
   const libraryItem = menuItems.find((page) => page.path === libraryPath);

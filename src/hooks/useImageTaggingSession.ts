@@ -8,6 +8,7 @@ import type {
 } from '../types/domain';
 import {
   addTagsToImages,
+  backfillImageTagReadings,
   getImageManualTagIds,
   getImageTaggingMeta,
   getOrCreateImageTag,
@@ -16,6 +17,17 @@ import {
   removeTagsFromImages,
   type ImageTaggingMeta,
 } from '../services/imageService';
+
+const TAGGING_COMPLETED_HISTORY_LIMIT = 20;
+
+export type ImageTaggingCompletedHistoryItem = {
+  imageId: string;
+  fileName: string;
+  thumbnail?: string;
+  completedAt: number;
+  autoTags: ImageTagRecord[];
+  manualTags: ImageTagRecord[];
+};
 
 const DEFAULT_APP_SETTINGS: AppSettings = {
   id: 'app' as const,
@@ -48,6 +60,10 @@ async function dismissImageFromTagging(imageId: string) {
   const nextDismissedIds = Array.from(
     new Set([...(settings.taggingDismissedImageIds ?? []), imageId]),
   );
+  const nextCompletedHistory = [
+    { imageId, completedAt: Date.now() },
+    ...(settings.taggingCompletedHistory ?? []).filter((item) => item.imageId !== imageId),
+  ].slice(0, TAGGING_COMPLETED_HISTORY_LIMIT);
 
   await db.settings.put({
     ...settings,
@@ -55,6 +71,7 @@ async function dismissImageFromTagging(imageId: string) {
     taggingPendingImageIds: (settings.taggingPendingImageIds ?? []).filter(
       (currentId) => currentId !== imageId,
     ),
+    taggingCompletedHistory: nextCompletedHistory,
   });
 }
 
@@ -78,6 +95,7 @@ export function useImageTaggingSession() {
   const [categories, setCategories] = useState<ImageTagCategoryRecord[]>([]);
   const [allTags, setAllTags] = useState<ImageTagRecord[]>([]);
   const [recentTagIds, setRecentTagIds] = useState<string[]>([]);
+  const [completedHistory, setCompletedHistory] = useState<ImageTaggingCompletedHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +126,33 @@ export function useImageTaggingSession() {
       setCategories(nextCategories);
       setAllTags(tags);
       setRecentTagIds(settings.imageImportRecentTagIds ?? []);
+      const tagMap = new Map(tags.map((tag) => [tag.id, tag]));
+      const imageMap = new Map(images.map((image) => [image.id, image]));
+      const historyItems = (settings.taggingCompletedHistory ?? [])
+        .map((item) => {
+          const image = imageMap.get(item.imageId);
+          if (!image) return null;
+
+          const autoTags = (image.autoTagIds ?? [])
+            .map((tagId) => tagMap.get(tagId) ?? null)
+            .filter((tag): tag is ImageTagRecord => Boolean(tag));
+          const manualTags = getImageManualTagIds(image)
+            .map((tagId) => tagMap.get(tagId) ?? null)
+            .filter((tag): tag is ImageTagRecord => Boolean(tag));
+
+          const historyItem: ImageTaggingCompletedHistoryItem = {
+            imageId: item.imageId,
+            fileName: image.fileName,
+            thumbnail: image.thumbnail,
+            completedAt: item.completedAt,
+            autoTags,
+            manualTags,
+          };
+
+          return historyItem;
+        })
+        .filter((item): item is ImageTaggingCompletedHistoryItem => Boolean(item));
+      setCompletedHistory(historyItems);
       setSelectedImageId((prev) => {
         if (prev && visibleImages.some((image) => image.id === prev)) return prev;
         return visibleImages[0]?.id ?? null;
@@ -121,6 +166,7 @@ export function useImageTaggingSession() {
 
   useEffect(() => {
     void refreshQueue();
+    void backfillImageTagReadings().then(() => refreshQueue()).catch(() => undefined);
   }, [refreshQueue]);
 
   useEffect(() => {
@@ -254,6 +300,7 @@ export function useImageTaggingSession() {
     selectedImageId,
     detail,
     recentTags,
+    completedHistory,
     selectImage,
     addManualTag,
     removeManualTag,

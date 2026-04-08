@@ -2,7 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RiAddLine, RiArrowRightLine, RiCloseLine, RiSearchLine } from 'react-icons/ri';
 import type { ImageTagCategoryRecord, ImageTagRecord } from '../../../types/domain';
-import { getImageFileUrl, normalizeImageTagName, type ImageTaggingMeta } from '../../../services/imageService';
+import {
+  getImageFileUrl,
+  matchesImageTagSearch,
+  normalizeImageTagName,
+  type ImageTaggingMeta,
+} from '../../../services/imageService';
 
 type Props = {
   detail: ImageTaggingMeta | null;
@@ -53,9 +58,7 @@ export default function ImageTaggingEditor({
 
     void getImageFileUrl(detail.image).then((url) => {
       if (!active) {
-        if (url) {
-          URL.revokeObjectURL(url);
-        }
+        if (url) URL.revokeObjectURL(url);
         return;
       }
 
@@ -65,9 +68,7 @@ export default function ImageTaggingEditor({
 
     return () => {
       active = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-      }
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [detail]);
 
@@ -83,27 +84,18 @@ export default function ImageTaggingEditor({
       if (activeCategoryId !== 'ALL' && tag.categoryId !== activeCategoryId) {
         return false;
       }
-      if (!normalizedQuery) {
-        return true;
-      }
-      return tag.normalizedName.includes(normalizedQuery);
+      return matchesImageTagSearch(tag, query, normalizedQuery);
     });
-  }, [activeCategoryId, allTags, normalizedQuery]);
+  }, [activeCategoryId, allTags, normalizedQuery, query]);
 
   const activeCategoryLabel = useMemo(() => {
-    if (isSearching) {
-      return '検索結果';
-    }
-    if (activeCategoryId === 'ALL') {
-      return 'すべてのタグ';
-    }
+    if (isSearching) return '検索結果';
+    if (activeCategoryId === 'ALL') return 'すべてのタグ';
     return categories.find((category) => category.id === activeCategoryId)?.name ?? 'タグ';
   }, [activeCategoryId, categories, isSearching]);
 
   const handleCreate = async () => {
-    if (!canCreate || busy) {
-      return;
-    }
+    if (!canCreate || busy) return;
     await onCreateTag(query.trim(), newTagCategoryId);
     setQuery('');
   };
@@ -112,7 +104,7 @@ export default function ImageTaggingEditor({
     <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-3">
       <div className="mb-3 flex items-end justify-between gap-3">
         <p className="text-sm font-medium text-text-main">{activeCategoryLabel}</p>
-        <p className="text-[11px] text-text-dim">{filteredTags.length}莉ｶ</p>
+        <p className="text-[11px] text-text-dim">{filteredTags.length}件</p>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -138,7 +130,7 @@ export default function ImageTaggingEditor({
       </div>
 
       {filteredTags.length === 0 && !canCreate && (
-        <p className="py-4 text-center text-sm text-text-dim">荳閾ｴ縺吶ｋ繧ｿ繧ｰ縺後≠繧翫∪縺帙ｓ</p>
+        <p className="py-4 text-center text-sm text-text-dim">一致するタグがありません</p>
       )}
     </div>
   );
@@ -148,7 +140,7 @@ export default function ImageTaggingEditor({
       <section className="flex h-full min-h-0 flex-col items-center justify-center rounded-2xl border border-border bg-bg-panel p-6 text-center">
         <p className="font-heading text-lg text-text-main">Tagging 準備中</p>
         <p className="mt-2 text-sm text-text-dim">
-          次の対象画像がないため、ここでは作業できる画像がありません。
+          次の対象画像がないため、ここでは整理できる画像がありません。
         </p>
       </section>
     );
@@ -275,9 +267,7 @@ export default function ImageTaggingEditor({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter' && canCreate) {
-                    void handleCreate();
-                  }
+                  if (event.key === 'Enter' && canCreate) void handleCreate();
                 }}
                 placeholder="タグを検索"
                 className="flex-1 bg-transparent text-sm text-text-main outline-none placeholder:text-text-dim"
@@ -298,7 +288,7 @@ export default function ImageTaggingEditor({
               <div className="mt-3 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2">
                 <RiAddLine className="text-accent" size={16} />
                 <span className="flex-1 text-sm text-text-muted">
-                  「<span className="text-accent">{query.trim()}</span>」を新規タグとして追加
+                  <span className="text-accent">{query.trim()}</span> を新規タグとして追加
                 </span>
                 <select
                   value={newTagCategoryId}

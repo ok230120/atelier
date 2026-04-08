@@ -32,6 +32,7 @@ import ImageDetailPage from './images/ImageDetailPage';
 import ImageManagePage from './images/ImageManagePage';
 import ImageImportPage from './images/ImageImportPage';
 import ImageTaggingPage from './images/ImageTaggingPage';
+import ImageTaggingCompletedPage from './images/ImageTaggingCompletedPage';
 import ImageTagsPage from './images/ImageTagsPage';
 
 export type PageDef = {
@@ -132,6 +133,13 @@ export const pageRegistry: PageDef[] = [
     label: 'Tagging',
     icon: RiPriceTag3Line,
     element: React.createElement(ImageTaggingPage),
+    isMenu: true,
+  },
+  {
+    path: '/images/tagging/completed',
+    label: 'Completed',
+    icon: RiPriceTag3Line,
+    element: React.createElement(ImageTaggingCompletedPage),
     isMenu: true,
   },
   {

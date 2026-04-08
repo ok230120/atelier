@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RiAddLine, RiCloseLine, RiSearchLine } from 'react-icons/ri';
 import type { ImageTagCategoryRecord, ImageTagRecord } from '../../../types/domain';
-import { normalizeImageTagName } from '../../../services/imageService';
+import { matchesImageTagSearch, normalizeImageTagName } from '../../../services/imageService';
 
 type Props = {
   categories: ImageTagCategoryRecord[];
@@ -51,10 +51,9 @@ export default function ImageImportTagPicker({
   const filteredTags = useMemo(
     () =>
       allTags.filter((tag) => {
-        if (!normalizedQuery) return true;
-        return tag.normalizedName.includes(normalizedQuery);
+        return matchesImageTagSearch(tag, query, normalizedQuery);
       }),
-    [allTags, normalizedQuery],
+    [allTags, normalizedQuery, query],
   );
 
   const exactMatch = allTags.find((tag) => tag.normalizedName === normalizedQuery);

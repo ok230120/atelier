@@ -41,6 +41,8 @@ export type AppSettings = {
   imageImportRecentTagIds?: string[];
   taggingDismissedImageIds?: string[];
   taggingPendingImageIds?: string[];
+  taggingCompletedHistory?: Array<{ imageId: string; completedAt: number }>;
+  imageTagReadingsBackfillDoneAt?: number;
 };
 
 export type FolderMount = {
@@ -145,6 +147,7 @@ export type ImageTagRecord = {
   id: string;
   name: string;
   normalizedName: string;
+  searchReadings: string[];
   categoryId: string;
   isAuto: boolean;
   createdAt: number;

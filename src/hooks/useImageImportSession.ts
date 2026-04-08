@@ -9,6 +9,7 @@ import {
   type ImageImportProgress,
 } from '../services/imageImportService';
 import {
+  backfillImageTagReadings,
   getOrCreateImageTag,
   listImageMounts,
   listImageTagCategories,
@@ -77,6 +78,7 @@ export function useImageImportSession() {
 
   useEffect(() => {
     void refreshMeta();
+    void backfillImageTagReadings().then(() => refreshMeta()).catch(() => undefined);
     setPickerWarning(fileSystem.getOpenFilePickerUnavailableReason());
   }, []);
 

@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { RiAddLine, RiCloseLine, RiSearchLine } from 'react-icons/ri';
 import type { ImageTagCategoryRecord, ImageTagRecord } from '../../../types/domain';
 import {
+  backfillImageTagReadings,
   getOrCreateImageTag,
   listImageTagCategories,
   listImageTags,
+  matchesImageTagSearch,
   normalizeImageTagName,
 } from '../../../services/imageService';
 
@@ -42,6 +44,11 @@ export default function TagSelectorPanel({
         );
       },
     );
+
+    void backfillImageTagReadings()
+      .then(() => listImageTags())
+      .then((nextTags) => setAllTags(nextTags))
+      .catch(() => undefined);
   }, []);
 
   const availableTagSet = useMemo(
@@ -57,10 +64,9 @@ export default function TagSelectorPanel({
     return allTags.filter((tag) => {
       if (availableTagSet && !availableTagSet.has(tag.id)) return false;
       if (activeCategoryId !== 'ALL' && tag.categoryId !== activeCategoryId) return false;
-      if (!normalizedQuery) return true;
-      return tag.normalizedName.includes(normalizedQuery);
+      return matchesImageTagSearch(tag, query, normalizedQuery);
     });
-  }, [activeCategoryId, allTags, availableTagSet, normalizedQuery]);
+  }, [activeCategoryId, allTags, availableTagSet, normalizedQuery, query]);
 
   const visibleCategories = useMemo(() => {
     if (activeCategoryId !== 'ALL') {

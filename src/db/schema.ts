@@ -250,6 +250,32 @@ export class AtelierDatabase extends Dexie {
           });
         }
       });
+
+    this.version(10)
+      .stores({
+        videos: 'id, mountId, addedAt, favorite, durationSec, *tags, [mountId+addedAt]',
+        novels: 'id, addedAt, lastReadAt, favorite, *tags, seriesId',
+        series: 'id, addedAt',
+        tags: 'id, category',
+        images:
+          'id, mountId, addedAt, updatedAt, favorite, folderPath, isMissing, lastSeenAt, *tags, *autoTagIds, [mountId+relativePath]',
+        imageTags: 'id, &normalizedName, categoryId, isAuto, usageCount, name',
+        imageTagCategories: 'id, &name, order, protected, createdAt',
+        imageMounts: 'id, addedAt, lastScannedAt',
+        settings: 'id',
+        mounts: 'id, addedAt',
+      })
+      .upgrade(async (tx) => {
+        const imageTagsTable = tx.table<ImageTagRecord>('imageTags');
+        const tags = await imageTagsTable.toArray();
+
+        for (const tag of tags) {
+          await imageTagsTable.put({
+            ...tag,
+            searchReadings: tag.searchReadings ?? [],
+          });
+        }
+      });
   }
 }
 

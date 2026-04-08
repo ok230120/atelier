@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   RiArrowLeftLine,
@@ -7,19 +7,27 @@ import {
   RiErrorWarningLine,
   RiFolderAddLine,
   RiImageAddLine,
-  RiRefreshLine,
   RiPriceTag3Line,
+  RiRefreshLine,
 } from 'react-icons/ri';
 import { db } from '../../db/client';
-import type { ImageMount } from '../../types/domain';
+import type { ImageMount, ImageRecord } from '../../types/domain';
 import { fileSystem } from '../../services/fileSystem';
-import { listImageMounts, scanImageMount, type ScanProgress } from '../../services/imageService';
+import {
+  listImageMounts,
+  listMissingImages,
+  removeMissingImages,
+  scanImageMount,
+  type ScanProgress,
+} from '../../services/imageService';
 
 export default function ImageManagePage() {
   const navigate = useNavigate();
   const [mounts, setMounts] = useState<ImageMount[]>([]);
+  const [missingImages, setMissingImages] = useState<ImageRecord[]>([]);
   const [scanning, setScanning] = useState<Record<string, ScanProgress>>({});
   const [isPicking, setIsPicking] = useState(false);
+  const [isCleaningMissing, setIsCleaningMissing] = useState(false);
   const [pickerWarning, setPickerWarning] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -30,8 +38,15 @@ export default function ImageManagePage() {
     directoryPicker: typeof window.showDirectoryPicker === 'function' ? 'available' : 'missing',
   };
 
+  const mountNameMap = useMemo(
+    () => new Map(mounts.map((mount) => [mount.id, mount.name])),
+    [mounts],
+  );
+
   const reload = async () => {
-    setMounts(await listImageMounts());
+    const [nextMounts, nextMissingImages] = await Promise.all([listImageMounts(), listMissingImages()]);
+    setMounts(nextMounts);
+    setMissingImages(nextMissingImages);
   };
 
   useEffect(() => {
@@ -92,7 +107,7 @@ export default function ImageManagePage() {
   };
 
   const removeMount = async (mountId: string) => {
-    if (!window.confirm('このマウントと画像メタ情報を削除しますか？実ファイルは削除されません。')) {
+    if (!window.confirm('このマウントと画像メタ情報を削除しますか？元ファイルは削除されません。')) {
       return;
     }
 
@@ -101,8 +116,43 @@ export default function ImageManagePage() {
     await reload();
   };
 
+  const handleRemoveMissing = async (imageId: string) => {
+    if (!window.confirm('この見つからない画像レコードを削除しますか？')) {
+      return;
+    }
+
+    setIsCleaningMissing(true);
+    setActionMessage(null);
+    try {
+      await removeMissingImages([imageId]);
+      await reload();
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : '見つからない画像の削除に失敗しました。');
+    } finally {
+      setIsCleaningMissing(false);
+    }
+  };
+
+  const handleRemoveAllMissing = async () => {
+    if (missingImages.length === 0) return;
+    if (!window.confirm(`見つからない画像を ${missingImages.length} 件まとめて削除しますか？`)) {
+      return;
+    }
+
+    setIsCleaningMissing(true);
+    setActionMessage(null);
+    try {
+      await removeMissingImages(missingImages.map((image) => image.id));
+      await reload();
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : '見つからない画像の一括削除に失敗しました。');
+    } finally {
+      setIsCleaningMissing(false);
+    }
+  };
+
   return (
-    <div className="relative mx-auto max-w-4xl p-6">
+    <div className="relative mx-auto max-w-5xl p-6">
       <div className="relative z-10 mb-8 flex items-center gap-4">
         <button
           type="button"
@@ -116,7 +166,7 @@ export default function ImageManagePage() {
         <div>
           <h1 className="font-heading text-2xl text-text-main">フォルダ管理</h1>
           <p className="mt-0.5 text-sm text-text-dim">
-            画像フォルダを追加して、取り込みや再スキャンを行います。
+            画像フォルダを追加して、再スキャンやメンテナンスを行います。
           </p>
         </div>
 
@@ -176,7 +226,7 @@ export default function ImageManagePage() {
           <RiFolderAddLine size={40} className="text-text-dim" />
           <p className="font-heading text-lg text-text-muted">フォルダがまだありません</p>
           <p className="text-sm text-text-dim">
-            画像フォルダを追加すると、一覧と追加ページで使えるようになります。
+            画像フォルダを追加すると、一括で追加ページや再スキャンを使えるようになります。
           </p>
         </div>
       ) : (
@@ -236,7 +286,8 @@ export default function ImageManagePage() {
                       <div
                         className="h-full rounded-full bg-accent transition-all duration-200"
                         style={{
-                          width: progress.total > 0 ? `${Math.round((progress.done / progress.total) * 100)}%` : '0%',
+                          width:
+                            progress.total > 0 ? `${Math.round((progress.done / progress.total) * 100)}%` : '0%',
                         }}
                       />
                     </div>
@@ -254,6 +305,81 @@ export default function ImageManagePage() {
           })}
         </div>
       )}
+
+      <section className="mt-8 rounded-2xl border border-orange-500/20 bg-bg-panel p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-orange-300/70">Maintenance</p>
+            <h2 className="mt-1 font-heading text-lg text-text-main">見つからない画像</h2>
+            <p className="mt-1 text-sm text-text-dim">
+              フォルダ移動やリネームで見つからなくなった画像レコードを確認して削除できます。
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-text-dim">{missingImages.length}件</span>
+            <button
+              type="button"
+              onClick={() => void handleRemoveAllMissing()}
+              disabled={missingImages.length === 0 || isCleaningMissing}
+              className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200 transition-colors hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              すべて削除
+            </button>
+          </div>
+        </div>
+
+        {missingImages.length === 0 ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-border/60 px-4 py-8 text-center text-sm text-text-dim">
+            現在、見つからない画像はありません。
+          </div>
+        ) : (
+          <div className="mt-4 space-y-3">
+            {missingImages.map((image) => (
+              <article
+                key={image.id}
+                className="grid gap-3 rounded-2xl border border-border bg-bg-surface/60 p-3 md:grid-cols-[84px_minmax(0,1fr)_auto]"
+              >
+                <div className="overflow-hidden rounded-xl bg-black/30">
+                  {image.thumbnail ? (
+                    <img
+                      src={image.thumbnail}
+                      alt={image.fileName}
+                      className="aspect-square h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex aspect-square items-center justify-center text-xs text-text-dim">
+                      No image
+                    </div>
+                  )}
+                </div>
+
+                <div className="min-w-0">
+                  <p className="truncate text-sm text-text-main">{image.fileName}</p>
+                  <div className="mt-1 space-y-1 text-xs text-text-dim">
+                    <div>マウント: {mountNameMap.get(image.mountId) ?? 'Unknown'}</div>
+                    <div className="break-all">フォルダ: {image.folderPath || 'ルート'}</div>
+                    <div className="break-all">パス: {image.relativePath}</div>
+                    <div>
+                      更新: {new Date(image.updatedAt ?? image.addedAt).toLocaleString('ja-JP')}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-start">
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveMissing(image.id)}
+                    disabled={isCleaningMissing}
+                    className="rounded-xl border border-border bg-bg-panel px-3 py-2 text-xs text-text-dim transition-colors hover:text-red-400 disabled:opacity-40"
+                  >
+                    <RiDeleteBin7Line size={14} />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

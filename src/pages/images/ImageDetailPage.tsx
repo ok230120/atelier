@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  RiArrowLeftLine,
-  RiCloseLine,
-  RiHeartFill,
-  RiHeartLine,
-  RiPriceTag3Line,
-} from 'react-icons/ri';
+import { RiArrowLeftLine, RiCloseLine, RiHeartFill, RiHeartLine } from 'react-icons/ri';
 import { db } from '../../db/client';
 import type { ImageMount, ImageRecord, ImageTagRecord } from '../../types/domain';
-import { addTagsToImages, getImageFileUrl, removeTagsFromImages } from '../../services/imageService';
-import TagSelectorPanel from './components/TagSelectorPanel';
+import {
+  addTagsToImages,
+  getImageFileUrl,
+  removeTagsFromImages,
+  sortImageTagsByUsage,
+} from '../../services/imageService';
+import ImageDetailTagPanel from './components/ImageDetailTagPanel';
 
 export default function ImageDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -20,7 +19,6 @@ export default function ImageDetailPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [tagObjects, setTagObjects] = useState<ImageTagRecord[]>([]);
   const [mount, setMount] = useState<ImageMount | null>(null);
-  const [showTagPanel, setShowTagPanel] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -37,9 +35,7 @@ export default function ImageDetailPage() {
 
     setImage(nextImage);
     setTagObjects(
-      tags
-        .filter((tag): tag is ImageTagRecord => Boolean(tag))
-        .sort((a, b) => a.name.localeCompare(b.name, 'ja')),
+      sortImageTagsByUsage(tags.filter((tag): tag is ImageTagRecord => Boolean(tag))),
     );
     setMount(nextMount ?? null);
   }, [id]);
@@ -137,12 +133,12 @@ export default function ImageDetailPage() {
         ) : (
           <div className="text-center text-white/40">
             <p className="text-sm">画像を読み込めませんでした</p>
-            <p className="mt-2 text-xs">ファイルアクセス権限が必要な場合があります</p>
+            <p className="mt-2 text-xs">ファイルアクセス権限が無効な場合があります。</p>
           </div>
         )}
       </div>
 
-      <aside className="flex w-80 flex-col overflow-y-auto border-l border-border bg-bg-panel">
+      <aside className="flex w-[26rem] flex-col overflow-y-auto border-l border-border bg-bg-panel xl:w-[30rem]">
         <div className="border-b border-border p-5">
           <div className="mb-3 flex items-start justify-between gap-2">
             <h1 className="break-all font-heading text-sm leading-snug text-text-main">{image.fileName}</h1>
@@ -176,24 +172,12 @@ export default function ImageDetailPage() {
         </div>
 
         <div className="flex-1 p-5">
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3">
             <h2 className="font-heading text-sm text-text-main">タグ</h2>
-            <button
-              onClick={() => setShowTagPanel(true)}
-              className="flex items-center gap-1 text-xs text-accent transition-colors hover:text-blue-400"
-            >
-              <RiPriceTag3Line size={14} />
-              追加
-            </button>
           </div>
 
           {tagObjects.length === 0 ? (
-            <button
-              onClick={() => setShowTagPanel(true)}
-              className="w-full rounded-xl border border-dashed border-border py-6 text-sm text-text-dim transition-all hover:border-border-light hover:text-text-muted"
-            >
-              タグを追加する
-            </button>
+            <p className="text-sm text-text-dim">まだ表示中のタグはありません</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {tagObjects.map((tag) => (
@@ -214,18 +198,10 @@ export default function ImageDetailPage() {
               ))}
             </div>
           )}
+
+          <ImageDetailTagPanel currentTagIds={image.tags} onSelect={handleAddTag} />
         </div>
       </aside>
-
-      {showTagPanel && (
-        <TagSelectorPanel
-          mode="add"
-          title="タグを追加"
-          currentTagIds={image.tags}
-          onSelect={handleAddTag}
-          onClose={() => setShowTagPanel(false)}
-        />
-      )}
     </div>
   );
 }

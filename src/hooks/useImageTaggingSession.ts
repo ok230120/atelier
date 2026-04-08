@@ -15,6 +15,7 @@ import {
   listImageTagCategories,
   listImageTags,
   removeTagsFromImages,
+  sortImageTagsByUsage,
   type ImageTaggingMeta,
 } from '../services/imageService';
 
@@ -145,8 +146,8 @@ export function useImageTaggingSession() {
             fileName: image.fileName,
             thumbnail: image.thumbnail,
             completedAt: item.completedAt,
-            autoTags,
-            manualTags,
+            autoTags: sortImageTagsByUsage(autoTags),
+            manualTags: sortImageTagsByUsage(manualTags),
           };
 
           return historyItem;

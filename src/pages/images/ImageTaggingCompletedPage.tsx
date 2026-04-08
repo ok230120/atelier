@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { RiArrowLeftLine } from 'react-icons/ri';
 import { db } from '../../db/client';
 import type { AppSettings, ImageTagRecord } from '../../types/domain';
-import { getImageManualTagIds, listImageTags } from '../../services/imageService';
+import { getImageManualTagIds, listImageTags, sortImageTagsByUsage } from '../../services/imageService';
 
 type CompletedHistoryItem = {
   imageId: string;
@@ -54,12 +54,16 @@ export default function ImageTaggingCompletedPage() {
               fileName: image.fileName,
               thumbnail: image.thumbnail,
               completedAt: entry.completedAt,
-              autoTags: (image.autoTagIds ?? [])
-                .map((tagId) => tagMap.get(tagId) ?? null)
-                .filter((tag): tag is ImageTagRecord => Boolean(tag)),
-              manualTags: getImageManualTagIds(image)
-                .map((tagId) => tagMap.get(tagId) ?? null)
-                .filter((tag): tag is ImageTagRecord => Boolean(tag)),
+              autoTags: sortImageTagsByUsage(
+                (image.autoTagIds ?? [])
+                  .map((tagId) => tagMap.get(tagId) ?? null)
+                  .filter((tag): tag is ImageTagRecord => Boolean(tag)),
+              ),
+              manualTags: sortImageTagsByUsage(
+                getImageManualTagIds(image)
+                  .map((tagId) => tagMap.get(tagId) ?? null)
+                  .filter((tag): tag is ImageTagRecord => Boolean(tag)),
+              ),
             };
 
             return nextItem;

@@ -168,6 +168,10 @@ export function matchesImageTagSearch(
   );
 }
 
+export function sortImageTagsByUsage<T extends Pick<ImageTagRecord, 'usageCount' | 'name'>>(tags: T[]) {
+  return [...tags].sort((a, b) => b.usageCount - a.usageCount || a.name.localeCompare(b.name, 'ja'));
+}
+
 export function getImageManualTagIds(image: ImageRecord): string[] {
   const autoTagSet = new Set(image.autoTagIds ?? []);
   return (image.tags ?? []).filter((tagId) => !autoTagSet.has(tagId));
@@ -766,6 +770,46 @@ export async function removeImportedImageRecord(imageId: string): Promise<void> 
   await refreshImageTagUsageCounts(affectedTagIds);
 }
 
+export async function listMissingImages(): Promise<ImageRecord[]> {
+  const images = await db.images.toArray();
+  return images
+    .filter((image) => image.isMissing === true)
+    .sort((a, b) => (b.updatedAt ?? b.addedAt) - (a.updatedAt ?? a.addedAt));
+}
+
+export async function removeMissingImages(imageIds: string[]): Promise<void> {
+  const uniqueImageIds = Array.from(new Set(imageIds.filter(Boolean)));
+  if (uniqueImageIds.length === 0) return;
+
+  const loadedImages = await db.images.bulkGet(uniqueImageIds);
+  const images: ImageRecord[] = [];
+  for (const image of loadedImages) {
+    if (image && image.isMissing === true) images.push(image);
+  }
+  if (images.length === 0) return;
+
+  const affectedTagIds = uniqueTagIds(images.flatMap((image) => image.tags ?? []));
+  const settings = await getAppSettings();
+
+  await db.transaction('rw', db.images, db.settings, async () => {
+    await db.images.bulkDelete(images.map((image) => image.id));
+    await db.settings.put({
+      ...settings,
+      taggingDismissedImageIds: (settings.taggingDismissedImageIds ?? []).filter(
+        (imageId) => !uniqueImageIds.includes(imageId),
+      ),
+      taggingPendingImageIds: (settings.taggingPendingImageIds ?? []).filter(
+        (imageId) => !uniqueImageIds.includes(imageId),
+      ),
+      taggingCompletedHistory: (settings.taggingCompletedHistory ?? []).filter(
+        (item) => !uniqueImageIds.includes(item.imageId),
+      ),
+    });
+  });
+
+  await refreshImageTagUsageCounts(affectedTagIds);
+}
+
 export async function getImageFileUrl(image: ImageRecord): Promise<string | null> {
   if (!image.fileHandle) return null;
 
@@ -932,7 +976,7 @@ export async function getImageTaggingMeta(imageId: string): Promise<ImageTagging
   return {
     image,
     mount: mount ?? null,
-    autoTags,
-    manualTags,
+    autoTags: sortImageTagsByUsage(autoTags),
+    manualTags: sortImageTagsByUsage(manualTags),
   };
 }

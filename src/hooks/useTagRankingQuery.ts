@@ -14,6 +14,7 @@ export interface UseTagRankingQueryProps {
   minDuration?: number;
   maxDuration?: number;
   tagSort?: 'popular' | 'alpha';
+  excludeMissing?: boolean;
 }
 
 export function useTagRankingQuery({
@@ -25,6 +26,7 @@ export function useTagRankingQuery({
   minDuration,
   maxDuration,
   tagSort = 'popular',
+  excludeMissing = true,
 }: UseTagRankingQueryProps): { ranking: RankedTag[]; isLoading: boolean } {
   const normalizedSearch = searchText.toLowerCase().trim();
 
@@ -43,6 +45,7 @@ export function useTagRankingQuery({
     const filtered = collection.filter((video: Video) => {
       // Favorites
       if (favoritesOnly && !video.favorite) return false;
+      if (excludeMissing && video.isMissing) return false;
 
       // Duration (if min/max set, exclude unknown duration)
       if (minDuration !== undefined || maxDuration !== undefined) {
@@ -95,7 +98,7 @@ export function useTagRankingQuery({
     }
 
     return ranking;
-  }, [searchText, tags, mountId, favoritesOnly, filterMode, minDuration, maxDuration, tagSort]);
+  }, [searchText, tags, mountId, favoritesOnly, filterMode, minDuration, maxDuration, tagSort, excludeMissing]);
 
   return {
     ranking: result ?? [],

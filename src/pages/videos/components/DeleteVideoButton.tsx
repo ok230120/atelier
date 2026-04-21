@@ -15,7 +15,7 @@ const DeleteVideoButton: React.FC<Props> = ({
   videoId,
   className,
   onDeleted,
-  confirmText = 'この動画を削除しますか？（元ファイルは消しません）',
+  confirmText = 'この動画の登録データを削除しますか？（元ファイルは削除しません）',
   stopPropagation = false,
 }) => {
   const onClick = async (e: React.MouseEvent) => {
@@ -23,6 +23,7 @@ const DeleteVideoButton: React.FC<Props> = ({
       e.preventDefault();
       e.stopPropagation();
     }
+
     const ok = window.confirm(confirmText);
     if (!ok) return;
 
@@ -34,11 +35,14 @@ const DeleteVideoButton: React.FC<Props> = ({
     <button
       type="button"
       onClick={onClick}
-      className={className ?? 'inline-flex items-center gap-2 rounded-xl border border-border bg-bg-panel px-3 py-2 text-sm hover:border-red-500/40 hover:text-red-300 transition-colors'}
-      title="Delete"
+      className={
+        className ??
+        'inline-flex items-center gap-2 rounded-xl border border-border bg-bg-panel px-3 py-2 text-sm hover:border-red-500/40 hover:text-red-300 transition-colors'
+      }
+      title="削除"
     >
       <RiDeleteBinLine />
-      <span className="hidden sm:inline">Delete</span>
+      <span className="hidden sm:inline">削除</span>
     </button>
   );
 };

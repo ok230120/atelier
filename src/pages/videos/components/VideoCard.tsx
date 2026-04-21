@@ -50,7 +50,7 @@ const VideoCard: React.FC<VideoCardProps> = ({ video, className }) => {
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center text-text-dim bg-bg-surface/50">
             <RiMovieFill className="text-4xl opacity-20 mb-2" />
-            <span className="text-xs font-mono opacity-40">NO THUMBNAIL</span>
+            <span className="text-xs font-mono opacity-40">サムネイル生成中</span>
           </div>
         )}
 

@@ -10,10 +10,13 @@ export type Video = {
   tags: string[];
   favorite: boolean;
   thumbnail?: string;
+  thumbnailSource?: 'auto' | 'manual';
   durationSec?: number;
   addedAt: number;
   lastPlayedAt?: number;
   playCount?: number;
+  isMissing?: boolean;
+  lastSeenAt?: number;
 };
 
 export type AppSettings = {

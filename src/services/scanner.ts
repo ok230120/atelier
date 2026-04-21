@@ -8,11 +8,51 @@ export interface ScanStats {
   added: number;
   updated: number;
   skipped: number;
+  missing: number;
 }
 
 function getExtLower(name: string): string {
   const i = name.lastIndexOf('.');
   return i >= 0 ? name.slice(i + 1).toLowerCase() : '';
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
+}
+
+function globToRegExp(glob: string): RegExp {
+  const normalized = glob.replace(/\\/g, '/');
+  let pattern = '';
+
+  for (let i = 0; i < normalized.length; i++) {
+    const ch = normalized[i];
+
+    if (ch === '*') {
+      const next = normalized[i + 1];
+      if (next === '*') {
+        pattern += '.*';
+        i++;
+      } else {
+        pattern += '[^/]*';
+      }
+      continue;
+    }
+
+    pattern += escapeRegex(ch);
+  }
+
+  return new RegExp(`^${pattern}$`, 'i');
+}
+
+function buildIgnoreMatchers(ignoreGlobs: string[] | undefined): RegExp[] {
+  return (ignoreGlobs ?? [])
+    .map((glob) => glob.trim())
+    .filter(Boolean)
+    .map(globToRegExp);
+}
+
+function shouldIgnorePath(relativePath: string, ignoreMatchers: RegExp[]): boolean {
+  return ignoreMatchers.some((matcher) => matcher.test(relativePath));
 }
 
 /**
@@ -61,9 +101,16 @@ async function scanDirectoryRecursively(
   mount: FolderMount,
   stats: ScanStats,
   allowedExts: Set<string>,
+  ignoreMatchers: RegExp[],
+  seenIds: Set<string>,
 ): Promise<void> {
   for await (const { name, handle } of iterateDirectory(dirHandle)) {
     const relativePath = basePath ? `${basePath}/${name}` : name;
+
+    if (shouldIgnorePath(relativePath, ignoreMatchers)) {
+      stats.skipped++;
+      continue;
+    }
 
     if (handle.kind === 'file') {
       stats.totalFiles++;
@@ -77,6 +124,7 @@ async function scanDirectoryRecursively(
       stats.matchedVideoFiles++;
 
       const id = `${mount.id}::${relativePath}`;
+      seenIds.add(id);
 
       try {
         const existing = await db.videos.get(id);
@@ -89,6 +137,8 @@ async function scanDirectoryRecursively(
             filename: name,
             mountId: mount.id,
             relativePath,
+            isMissing: false,
+            lastSeenAt: Date.now(),
           });
           stats.updated++;
         } else {
@@ -104,10 +154,13 @@ async function scanDirectoryRecursively(
             tags: [],
             favorite: false,
             thumbnail: undefined,
+            thumbnailSource: undefined,
             durationSec: undefined,
             addedAt: Date.now(),
             lastPlayedAt: undefined,
             playCount: 0,
+            isMissing: false,
+            lastSeenAt: Date.now(),
           };
           await db.videos.add(newVideo);
           stats.added++;
@@ -129,6 +182,8 @@ async function scanDirectoryRecursively(
             mount,
             stats,
             allowedExts,
+            ignoreMatchers,
+            seenIds,
           );
         } catch (err) {
           console.error(`Error scanning directory ${relativePath}:`, err);
@@ -157,12 +212,16 @@ export async function scanMount(mount: FolderMount): Promise<ScanStats> {
     added: 0,
     updated: 0,
     skipped: 0,
+    missing: 0,
   };
 
   // normalize exts like ["mp4","mkv"] or [".mp4"] both ok
   const allowedExts = new Set(
     (mount.exts || []).map((e) => e.toLowerCase().replace(/^\./, '')).filter(Boolean),
   );
+  const ignoreMatchers = buildIgnoreMatchers(mount.ignoreGlobs);
+  const seenIds = new Set<string>();
+  const scanStartedAt = Date.now();
 
   try {
     await scanDirectoryRecursively(
@@ -171,7 +230,34 @@ export async function scanMount(mount: FolderMount): Promise<ScanStats> {
       mount,
       stats,
       allowedExts,
+      ignoreMatchers,
+      seenIds,
     );
+
+    const existingVideos = await db.videos.where('mountId').equals(mount.id).toArray();
+    const missingVideos = existingVideos
+      .filter((video) => !seenIds.has(video.id))
+      .map((video) => ({
+        ...video,
+        isMissing: true,
+      }));
+
+    if (missingVideos.length > 0) {
+      await db.videos.bulkPut(missingVideos);
+      stats.missing = missingVideos.length;
+    }
+
+    const recoveredVideos = existingVideos
+      .filter((video) => seenIds.has(video.id) && video.isMissing)
+      .map((video) => ({
+        ...video,
+        isMissing: false,
+        lastSeenAt: scanStartedAt,
+      }));
+
+    if (recoveredVideos.length > 0) {
+      await db.videos.bulkPut(recoveredVideos);
+    }
   } catch (err) {
     console.error(`Scan failed for mount ${mount.name}:`, err);
     throw err;

@@ -8,6 +8,7 @@ import {
   RiRestartLine,
   RiSearchLine,
 } from "react-icons/ri";
+import { listControlCompactButtonClassName } from "./listControls";
 
 type MountMini = { id: string; name: string; color?: string };
 
@@ -45,7 +46,7 @@ const Pill: React.FC<{
           type="button"
           onClick={onRemove}
           className="ml-1 inline-flex items-center justify-center rounded-lg p-1 text-text-dim hover:text-text-main hover:bg-bg-surface transition-colors"
-          aria-label="Remove filter"
+          aria-label="フィルターを解除"
         >
           <RiCloseLine />
         </button>
@@ -78,7 +79,7 @@ const ActiveFiltersBar: React.FC<ActiveFiltersBarProps> = ({
           icon={<RiSearchLine />}
           label={
             <span className="truncate">
-              Search: <span className="text-text-dim">{searchText}</span>
+              検索: <span className="text-text-dim">{searchText}</span>
             </span>
           }
           onRemove={onClearSearch}
@@ -95,7 +96,7 @@ const ActiveFiltersBar: React.FC<ActiveFiltersBarProps> = ({
           }
           label={
             <span className="truncate">
-              Folder: <span className="text-text-dim">{mount.name}</span>
+              フォルダ: <span className="text-text-dim">{mount.name}</span>
             </span>
           }
           onRemove={onClearMount}
@@ -107,7 +108,7 @@ const ActiveFiltersBar: React.FC<ActiveFiltersBarProps> = ({
           icon={<RiPriceTag3Line />}
           label={
             <span className="truncate">
-              Tags:{" "}
+              タグ:{" "}
               <span className="text-text-dim">{selectedTags.length}</span>
             </span>
           }
@@ -128,7 +129,7 @@ const ActiveFiltersBar: React.FC<ActiveFiltersBarProps> = ({
         <Pill
           label={
             <span className="truncate">
-              Page:{" "}
+              ページ:{" "}
               <span className="text-text-dim">
                 {currentPage} / {totalPages}
               </span>
@@ -140,10 +141,10 @@ const ActiveFiltersBar: React.FC<ActiveFiltersBarProps> = ({
       <button
         type="button"
         onClick={onResetAll}
-        className="ml-auto inline-flex items-center gap-2 rounded-xl border border-border bg-bg-panel px-3 py-2 text-xs text-text-muted hover:text-text-main hover:border-accent/50 transition-colors"
+        className={classNames("ml-auto", listControlCompactButtonClassName)}
       >
         <RiRestartLine />
-        Reset all
+        すべて解除
       </button>
     </div>
   );

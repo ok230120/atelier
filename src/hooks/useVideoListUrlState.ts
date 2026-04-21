@@ -18,7 +18,7 @@ function sortedTags(tags: string[]): string[] {
   return Array.from(new Set(tags.filter(Boolean))).sort((a, b) => a.localeCompare(b));
 }
 
-export type SortOption = 'newest' | 'oldest';
+export type SortOption = 'newest' | 'oldest' | 'recentlyPlayed' | 'mostPlayed';
 export type LenOption = 'any' | '0-5' | '5-10' | '10-30' | '30-60' | '60+';
 
 export const DURATION_RANGES_SEC: Record<LenOption, [number | undefined, number | undefined]> = {
@@ -34,7 +34,10 @@ export const DURATION_RANGES_SEC: Record<LenOption, [number | undefined, number 
 export const DURATION_RANGES = DURATION_RANGES_SEC;
 
 function parseSort(v: string | null): SortOption {
-  return v === 'oldest' ? 'oldest' : 'newest';
+  if (v === 'oldest') return 'oldest';
+  if (v === 'recentlyPlayed') return 'recentlyPlayed';
+  if (v === 'mostPlayed') return 'mostPlayed';
+  return 'newest';
 }
 
 function parseLen(v: string | null): LenOption {

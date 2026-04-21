@@ -45,7 +45,7 @@ const ThumbnailActions: React.FC<ThumbnailActionsProps> = ({
         onThumbnailChange(dataUrl);
       } catch (err) {
         console.error(err);
-        alert('Failed to load image file.');
+        alert('画像ファイルの読み込みに失敗しました。');
       }
     }
     // 同じファイルを選び直せるようにリセット
@@ -60,11 +60,11 @@ const ThumbnailActions: React.FC<ThumbnailActionsProps> = ({
       if (dataUrl) {
         onThumbnailChange(dataUrl);
       } else {
-        alert('No image found in clipboard.');
+        alert('クリップボードに画像が見つかりませんでした。');
       }
     } catch (err) {
       console.error(err);
-      alert('Failed to access clipboard. Make sure the browser window is active.');
+      alert('クリップボードへアクセスできませんでした。ブラウザをアクティブにして再度お試しください。');
     }
   };
 
@@ -92,23 +92,23 @@ const ThumbnailActions: React.FC<ThumbnailActionsProps> = ({
 
       <ActionButton
         icon={RiCameraLine}
-        label="Capture Frame"
+        label="現在のフレーム"
         onClick={handleCapture}
-        title="Capture current video frame as thumbnail"
+        title="現在のフレームをサムネイルにする"
       />
 
       <ActionButton
         icon={RiImageAddLine}
-        label="Upload"
+        label="画像を選択"
         onClick={() => fileInputRef.current?.click()}
-        title="Select image file"
+        title="画像ファイルを選択"
       />
 
       <ActionButton
         icon={RiClipboardLine}
-        label="Paste"
+        label="貼り付け"
         onClick={handleClipboard}
-        title="Paste image from clipboard"
+        title="クリップボードの画像を貼り付け"
       />
 
       {video.thumbnail && (
@@ -118,14 +118,14 @@ const ThumbnailActions: React.FC<ThumbnailActionsProps> = ({
           <ActionButton
             icon={RiDownloadLine}
             onClick={handleDownload}
-            title="Download thumbnail"
+            title="サムネイルを保存"
             className="text-text-dim hover:text-text-main"
           />
 
           <ActionButton
             icon={RiDeleteBinLine}
             onClick={() => onThumbnailChange(null)}
-            title="Remove thumbnail"
+            title="サムネイルを削除"
             className="text-text-dim hover:text-red-400"
           />
         </>

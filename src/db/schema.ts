@@ -276,6 +276,21 @@ export class AtelierDatabase extends Dexie {
           });
         }
       });
+
+    this.version(11).stores({
+      videos:
+        'id, mountId, addedAt, favorite, durationSec, lastPlayedAt, playCount, isMissing, thumbnailSource, lastSeenAt, *tags, [mountId+addedAt], [mountId+isMissing]',
+      novels: 'id, addedAt, lastReadAt, favorite, *tags, seriesId',
+      series: 'id, addedAt',
+      tags: 'id, category',
+      images:
+        'id, mountId, addedAt, updatedAt, favorite, folderPath, isMissing, lastSeenAt, *tags, *autoTagIds, [mountId+relativePath]',
+      imageTags: 'id, &normalizedName, categoryId, isAuto, usageCount, name',
+      imageTagCategories: 'id, &name, order, protected, createdAt',
+      imageMounts: 'id, addedAt, lastScannedAt',
+      settings: 'id',
+      mounts: 'id, addedAt',
+    });
   }
 }
 

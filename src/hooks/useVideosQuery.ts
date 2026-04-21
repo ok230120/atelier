@@ -10,11 +10,12 @@ interface UseVideosQueryProps {
   mountId?: string;
   page?: number;
   pageSize?: number;
-  sort?: 'newest' | 'oldest';
+  sort?: 'newest' | 'oldest' | 'recentlyPlayed' | 'mostPlayed';
   favoritesOnly?: boolean;
   filterMode?: 'AND' | 'OR';
   minDuration?: number;
   maxDuration?: number;
+  excludeMissing?: boolean;
 }
 
 interface UseVideosQueryResult {
@@ -35,6 +36,7 @@ export const useVideosQuery = ({
   filterMode = 'AND',
   minDuration,
   maxDuration,
+  excludeMissing = true,
 }: UseVideosQueryProps): UseVideosQueryResult => {
   const normalizedSearch = searchText.toLowerCase().trim();
 
@@ -42,28 +44,31 @@ export const useVideosQuery = ({
     async () => {
       let collection: Dexie.Collection<Video, string>;
 
-      // 1) Initial Collection Selection
       if (mountId) {
-        // Use compound index [mountId+addedAt]
         collection = db.videos
           .where('[mountId+addedAt]')
           .between([mountId, Dexie.minKey], [mountId, Dexie.maxKey]);
+      } else if (favoritesOnly) {
+        collection = db.videos.where('favorite').equals(1);
+      } else if (excludeMissing) {
+        collection = db.videos.where('isMissing').notEqual(1);
+      } else if (sort === 'recentlyPlayed') {
+        collection = db.videos.orderBy('lastPlayedAt').reverse();
+      } else if (sort === 'mostPlayed') {
+        collection = db.videos.orderBy('playCount').reverse();
       } else {
-        // Default ordering by addedAt
         collection = db.videos.orderBy('addedAt');
-      }
-
-      // Apply sorting direction
-      // 'oldest' is the natural order of addedAt (ascending).
-      // 'newest' requires reversing the collection (descending).
-      if (sort === 'newest') {
-        collection = collection.reverse();
+        if (sort === 'newest') {
+          collection = collection.reverse();
+        }
       }
 
       // 2) In-memory Filtering
       const filtered = collection.filter((video: Video) => {
         // Favorites check
         if (favoritesOnly && !video.favorite) return false;
+        if (excludeMissing && video.isMissing) return false;
+        if (mountId && video.mountId !== mountId) return false;
 
         // Duration check
         // If min/max are set, we exclude videos with undefined duration.
@@ -71,7 +76,7 @@ export const useVideosQuery = ({
           const d = video.durationSec;
           if (d === undefined) return false;
           if (minDuration !== undefined && d < minDuration) return false;
-          if (maxDuration !== undefined && d > maxDuration) return false; // upper bound is exclusive
+          if (maxDuration !== undefined && d >= maxDuration) return false;
         }
 
         // Tag filtering
@@ -95,10 +100,22 @@ export const useVideosQuery = ({
         return true;
       });
 
-      const totalCount = await filtered.count();
+      let filteredArray = await filtered.toArray();
+
+      if (sort === 'recentlyPlayed') {
+        filteredArray.sort((a, b) => (b.lastPlayedAt ?? 0) - (a.lastPlayedAt ?? 0) || b.addedAt - a.addedAt);
+      } else if (sort === 'mostPlayed') {
+        filteredArray.sort((a, b) => (b.playCount ?? 0) - (a.playCount ?? 0) || b.addedAt - a.addedAt);
+      } else if (sort === 'newest') {
+        filteredArray.sort((a, b) => b.addedAt - a.addedAt);
+      } else {
+        filteredArray.sort((a, b) => a.addedAt - b.addedAt);
+      }
+
+      const totalCount = filteredArray.length;
 
       const offset = (page - 1) * pageSize;
-      const videos = await filtered.offset(offset).limit(pageSize).toArray();
+      const videos = filteredArray.slice(offset, offset + pageSize);
 
       return { videos, totalCount };
     },
@@ -113,6 +130,7 @@ export const useVideosQuery = ({
       filterMode,
       minDuration,
       maxDuration,
+      excludeMissing,
     ],
   );
 

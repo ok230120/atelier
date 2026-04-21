@@ -89,13 +89,14 @@ const TagDrawer: React.FC<TagDrawerProps> = ({
                       key={tag.name}
                       onClick={() => onToggleTag(tag.name)}
                       className={classNames(
-                        'w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm transition-all duration-200 group border',
+                        'group h-11 w-full rounded-xl px-3 transition-all duration-200',
+                        'flex items-center justify-between border text-sm',
                         isActive
                           ? 'bg-accent/10 border-accent/30 text-accent'
                           : 'bg-transparent border-transparent text-text-muted hover:bg-bg-panel hover:text-text-main',
                       )}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <span
                           className={classNames(
                             'w-4 h-4 flex items-center justify-center rounded border transition-colors',
@@ -104,12 +105,12 @@ const TagDrawer: React.FC<TagDrawerProps> = ({
                         >
                           {isActive && <RiCheckLine className="text-[10px]" />}
                         </span>
-                        <span className="truncate max-w-[160px]">#{tag.name}</span>
+                        <span className="truncate">#{tag.name}</span>
                       </div>
 
                       <span
                         className={classNames(
-                          'text-xs px-1.5 py-0.5 rounded font-mono',
+                          'min-w-8 rounded-md px-2 py-1 text-center text-xs font-mono leading-none',
                           isActive ? 'bg-accent/20 text-accent' : 'bg-bg-panel text-text-dim',
                         )}
                       >

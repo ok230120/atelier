@@ -41,11 +41,11 @@ export default function VideoTagsEditor({ video }: Props) {
 
   return (
     <div className="rounded-2xl border border-border bg-bg-panel p-4 space-y-3">
-      <div className="text-sm font-semibold">Tags</div>
+      <div className="text-sm font-semibold">タグ</div>
 
       <div className="flex flex-wrap gap-2">
         {tags.length === 0 ? (
-          <div className="text-sm text-text-dim">No tags</div>
+          <div className="text-sm text-text-dim">タグなし</div>
         ) : (
           tags.map((t) => (
             <TagChip key={t} label={`#${t}`} isSelected onRemove={() => removeTag(t)} size="sm" />
@@ -60,7 +60,7 @@ export default function VideoTagsEditor({ video }: Props) {
           onKeyDown={(e) => {
             if (e.key === 'Enter') addFromInput();
           }}
-          placeholder="add tags (comma/space separated)"
+          placeholder="タグを追加（カンマ・空白区切り）"
           className="flex-1 bg-bg-panel border border-border rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-accent/50"
         />
         <button
@@ -68,7 +68,7 @@ export default function VideoTagsEditor({ video }: Props) {
           onClick={addFromInput}
           className="rounded-xl border border-border bg-bg-panel px-3 py-2 text-sm hover:border-accent/50 transition-colors"
         >
-          Add
+          追加
         </button>
       </div>
     </div>

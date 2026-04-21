@@ -24,7 +24,7 @@ type Props = {
 const TagSelectDrawer: React.FC<Props> = ({
   open,
   onClose,
-  title = 'Select tags',
+  title = 'タグを選択',
   allTags,
   isLoading = false,
   selectedTags,
@@ -82,7 +82,7 @@ const TagSelectDrawer: React.FC<Props> = ({
             type="button"
             onClick={onClose}
             className="p-2 rounded-xl hover:bg-white/5 border border-border"
-            aria-label="Close"
+            aria-label="閉じる"
           >
             <RiCloseLine className="text-xl" />
           </button>
@@ -96,21 +96,21 @@ const TagSelectDrawer: React.FC<Props> = ({
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              placeholder="Search tags..."
+              placeholder="タグを検索..."
               className="w-full bg-zinc-950/30 border border-border rounded-xl pl-10 pr-3 py-2 text-sm focus:outline-none focus:border-accent/50"
             />
           </div>
 
           <div className="mt-3 text-xs text-text-dim">
-            Selected: <span className="text-text-main">{draft.length}</span>
+            選択中: <span className="text-text-main">{draft.length}</span>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-2">
           {isLoading ? (
-            <div className="p-4 text-sm text-text-dim">Loading tags...</div>
+            <div className="p-4 text-sm text-text-dim">タグを読み込み中...</div>
           ) : filtered.length === 0 ? (
-            <div className="p-4 text-sm text-text-dim">No tags</div>
+            <div className="p-4 text-sm text-text-dim">タグがありません</div>
           ) : (
             <ul className="space-y-1">
               {filtered.map(({ tag, count }) => {
@@ -145,7 +145,7 @@ const TagSelectDrawer: React.FC<Props> = ({
             onClick={() => setDraft([])}
             className="px-3 py-2 rounded-xl border border-border hover:border-accent/50 text-sm"
           >
-            Clear
+            クリア
           </button>
 
           <div className="flex gap-2">
@@ -154,7 +154,7 @@ const TagSelectDrawer: React.FC<Props> = ({
               onClick={onClose}
               className="px-4 py-2 rounded-xl border border-border hover:border-accent/50 text-sm"
             >
-              Cancel
+              キャンセル
             </button>
             <button
               type="button"
@@ -162,7 +162,7 @@ const TagSelectDrawer: React.FC<Props> = ({
               disabled={busy}
               className="px-4 py-2 rounded-xl border border-accent/50 bg-accent/10 hover:bg-accent/15 text-sm disabled:opacity-60"
             >
-              Apply
+              適用
             </button>
           </div>
         </div>

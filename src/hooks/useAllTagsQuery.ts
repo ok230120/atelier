@@ -18,6 +18,7 @@ export function useAllTagsQuery(opts?: { mountId?: string; enabled?: boolean }) 
       : db.videos.toCollection();
 
     await col.each((v: Video) => {
+      if (v.isMissing) return;
       for (const t of v.tags ?? []) {
         const tag = (t ?? '').trim().toLowerCase();
         if (!tag) continue;

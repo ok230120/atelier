@@ -53,7 +53,7 @@ export const pageRegistry: PageDef[] = [
   },
   {
     path: '/videos',
-    label: 'Library',
+    label: '動画',
     icon: RiMovie2Line,
     element: React.createElement(VideosPage),
     isMenu: true,
@@ -88,21 +88,21 @@ export const pageRegistry: PageDef[] = [
   },
   {
     path: '/favorites',
-    label: 'Favorites',
+    label: 'お気に入り',
     icon: RiHeart3Line,
     element: React.createElement(FavoritesPage),
     isMenu: true,
   },
   {
     path: '/manage',
-    label: 'Manage',
+    label: '管理',
     icon: RiFolderSettingsLine,
     element: React.createElement(ManagePage),
     isMenu: true,
   },
   {
     path: '/settings',
-    label: 'Settings',
+    label: '設定',
     icon: RiSettings4Line,
     element: React.createElement(SettingsPage),
     isMenu: true,

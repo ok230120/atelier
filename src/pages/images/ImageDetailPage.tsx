@@ -6,6 +6,7 @@ import type { ImageMount, ImageRecord, ImageTagRecord } from '../../types/domain
 import {
   addTagsToImages,
   getImageFileUrl,
+  getImageManualTagIds,
   removeTagsFromImages,
   sortImageTagsByUsage,
 } from '../../services/imageService';
@@ -17,7 +18,7 @@ export default function ImageDetailPage() {
 
   const [image, setImage] = useState<ImageRecord | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
-  const [tagObjects, setTagObjects] = useState<ImageTagRecord[]>([]);
+  const [tagMap, setTagMap] = useState<Map<string, ImageTagRecord>>(new Map());
   const [mount, setMount] = useState<ImageMount | null>(null);
 
   const load = useCallback(async () => {
@@ -34,8 +35,10 @@ export default function ImageDetailPage() {
     ]);
 
     setImage(nextImage);
-    setTagObjects(
-      sortImageTagsByUsage(tags.filter((tag): tag is ImageTagRecord => Boolean(tag))),
+    setTagMap(
+      new Map(
+        tags.filter((tag): tag is ImageTagRecord => Boolean(tag)).map((tag) => [tag.id, tag]),
+      ),
     );
     setMount(nextMount ?? null);
   }, [id]);
@@ -101,6 +104,22 @@ export default function ImageDetailPage() {
 
   const autoTagIdSet = useMemo(() => new Set(image?.autoTagIds ?? []), [image?.autoTagIds]);
 
+  const autoTags = useMemo(() => {
+    if (!image) return [];
+    return (image.autoTagIds ?? [])
+      .map((tagId) => tagMap.get(tagId) ?? null)
+      .filter((tag): tag is ImageTagRecord => Boolean(tag));
+  }, [image, tagMap]);
+
+  const manualTags = useMemo(() => {
+    if (!image) return [];
+    return sortImageTagsByUsage(
+      getImageManualTagIds(image)
+        .map((tagId) => tagMap.get(tagId) ?? null)
+        .filter((tag): tag is ImageTagRecord => Boolean(tag)),
+    );
+  }, [image, tagMap]);
+
   if (!image) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -133,7 +152,7 @@ export default function ImageDetailPage() {
         ) : (
           <div className="text-center text-white/40">
             <p className="text-sm">画像を読み込めませんでした</p>
-            <p className="mt-2 text-xs">ファイルアクセス権限が無効な場合があります。</p>
+            <p className="mt-2 text-xs">ファイルアクセス権限が不足している可能性があります。</p>
           </div>
         )}
       </div>
@@ -176,26 +195,43 @@ export default function ImageDetailPage() {
             <h2 className="font-heading text-sm text-text-main">タグ</h2>
           </div>
 
-          {tagObjects.length === 0 ? (
+          {autoTags.length === 0 && manualTags.length === 0 ? (
             <p className="text-sm text-text-dim">まだ表示中のタグはありません</p>
           ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {tagObjects.map((tag) => (
-                <span
-                  key={tag.id}
-                  className="group flex items-center gap-1 rounded-full border border-border bg-bg-surface px-2.5 py-1 text-xs text-text-muted"
-                >
-                  {tag.name}
-                  {!autoTagIdSet.has(tag.id) && (
-                    <button
-                      onClick={() => void handleRemoveTag(tag.id)}
-                      className="opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
+            <div className="space-y-2">
+              {autoTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {autoTags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-xs text-sky-200"
                     >
-                      <RiCloseLine size={12} />
-                    </button>
-                  )}
-                </span>
-              ))}
+                      {tag.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {manualTags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {manualTags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className="group flex items-center gap-1 rounded-full border border-border bg-bg-surface px-2.5 py-1 text-xs text-text-muted"
+                    >
+                      {tag.name}
+                      {!autoTagIdSet.has(tag.id) && (
+                        <button
+                          onClick={() => void handleRemoveTag(tag.id)}
+                          className="opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
+                        >
+                          <RiCloseLine size={12} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

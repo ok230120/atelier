@@ -1,27 +1,54 @@
 # atelier
 
-Brave Browser専用のローカル完結型個人ポータルサイト「atelier」。
-動画ライブラリ機能を最初のモジュールとして実装し、将来的に様々なツールを集約する「自分専用のデジタル作業机」を目指しています。
+`atelier` はローカルファイルを扱う個人向けメディア管理アプリです。  
+React + TypeScript + Vite で構成されており、動画・小説・画像をブラウザ上で整理する用途を想定しています。
 
-## 必須環境
+## 前提環境
 
-- **ブラウザ**: Brave (Chromiumベース)
-  - **Firefox / Safari / Mobile は非対応です**（File System Access API 必須のため）。
-- **Node.js**: v18以上
+- Node.js 18 以上
+- Chromium 系ブラウザ
+- File System Access API が利用できる環境
 
-## セットアップ & 起動
+`atelier` はローカルフォルダへのアクセスを前提にしているため、Firefox / Safari / 一部モバイルブラウザでは期待どおり動作しない可能性があります。
+
+## セットアップ
 
 ```bash
 npm install
+```
+
+## 開発起動
+
+```bash
 npm run dev
 ```
 
-## 機能概要
+## ビルド
 
-- **完全ローカル運用**: 動画ファイルはPC内のファイルを直接参照し、メタデータはIndexedDBに保存します。外部サーバーへの送信はありません。
-- **動画ハブ**: フォルダ（マウント）単位での管理、タグ付け、検索、再生機能。
-- **拡張性**: `src/pages/registry.ts` に追記するだけで新しいページ（モジュール）を追加可能。
+```bash
+npm run build
+```
 
-## File System Access API について
+## プレビュー
 
-動画フォルダやサムネイル保存先を選択する際、ブラウザから「ファイルの表示と編集の許可」を求められます。これらはローカルファイルを扱うために必須の権限です。「許可」を選択してください。
+```bash
+npm run preview
+```
+
+## 主な画面
+
+- Home
+- Videos
+- Novels
+- Images
+- Favorites
+- Manage
+- Settings
+
+ルーティング定義は `src/pages/registry.ts` にまとまっています。
+
+## 補足
+
+- データ保存には IndexedDB を使用します。
+- 画像・動画・小説の管理機能は `src/pages/` 配下に分かれています。
+- ファイル操作やインポート処理は `src/services/` にあります。

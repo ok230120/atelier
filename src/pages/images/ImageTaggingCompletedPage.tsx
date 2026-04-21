@@ -8,7 +8,7 @@ import { getImageManualTagIds, listImageTags, sortImageTagsByUsage } from '../..
 type CompletedHistoryItem = {
   imageId: string;
   fileName: string;
-  thumbnail?: string;
+  thumbnail: string | undefined;
   completedAt: number;
   autoTags: ImageTagRecord[];
   manualTags: ImageTagRecord[];
@@ -45,28 +45,24 @@ export default function ImageTaggingCompletedPage() {
         const tagMap = new Map(tags.map((tag) => [tag.id, tag]));
 
         const nextItems = history
-          .map((entry) => {
+          .map<CompletedHistoryItem | null>((entry) => {
             const image = imageMap.get(entry.imageId);
             if (!image) return null;
 
-            const nextItem: CompletedHistoryItem = {
+            return {
               imageId: entry.imageId,
               fileName: image.fileName,
               thumbnail: image.thumbnail,
               completedAt: entry.completedAt,
-              autoTags: sortImageTagsByUsage(
-                (image.autoTagIds ?? [])
-                  .map((tagId) => tagMap.get(tagId) ?? null)
-                  .filter((tag): tag is ImageTagRecord => Boolean(tag)),
-              ),
+              autoTags: (image.autoTagIds ?? [])
+                .map((tagId) => tagMap.get(tagId) ?? null)
+                .filter((tag): tag is ImageTagRecord => Boolean(tag)),
               manualTags: sortImageTagsByUsage(
                 getImageManualTagIds(image)
                   .map((tagId) => tagMap.get(tagId) ?? null)
                   .filter((tag): tag is ImageTagRecord => Boolean(tag)),
               ),
             };
-
-            return nextItem;
           })
           .filter((item): item is CompletedHistoryItem => Boolean(item));
 
@@ -152,35 +148,33 @@ export default function ImageTaggingCompletedPage() {
                   </Link>
                 </div>
 
-                {item.autoTags.length > 0 && (
-                  <div className="mt-4">
-                    <p className="mb-2 text-[11px] text-text-dim">自動タグ</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.autoTags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-200"
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                {(item.autoTags.length > 0 || item.manualTags.length > 0) && (
+                  <div className="mt-4 space-y-2">
+                    {item.autoTags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.autoTags.map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] text-sky-200"
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
-                {item.manualTags.length > 0 && (
-                  <div className="mt-4">
-                    <p className="mb-2 text-[11px] text-text-dim">手動タグ</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.manualTags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="rounded-full border border-border bg-bg-surface px-2.5 py-1 text-[11px] text-text-muted"
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
-                    </div>
+                    {item.manualTags.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.manualTags.map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="rounded-full border border-border bg-bg-surface px-2.5 py-1 text-[11px] text-text-muted"
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

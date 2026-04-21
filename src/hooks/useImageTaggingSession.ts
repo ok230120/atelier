@@ -146,7 +146,7 @@ export function useImageTaggingSession() {
             fileName: image.fileName,
             thumbnail: image.thumbnail,
             completedAt: item.completedAt,
-            autoTags: sortImageTagsByUsage(autoTags),
+            autoTags,
             manualTags: sortImageTagsByUsage(manualTags),
           };
 

@@ -976,7 +976,7 @@ export async function getImageTaggingMeta(imageId: string): Promise<ImageTagging
   return {
     image,
     mount: mount ?? null,
-    autoTags: sortImageTagsByUsage(autoTags),
+    autoTags,
     manualTags: sortImageTagsByUsage(manualTags),
   };
 }

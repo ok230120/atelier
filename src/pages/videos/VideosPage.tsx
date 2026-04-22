@@ -1,5 +1,5 @@
 // FILE: src/pages/videos/VideosPage.tsx
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -18,6 +18,7 @@ import { useAppSettings } from '../../hooks/useAppSettings';
 import { useVideoListUrlState, type SortOption, type LenOption } from '../../hooks/useVideoListUrlState';
 import { useTagRankingQuery } from '../../hooks/useTagRankingQuery';
 import { useVideoDerivedDataQueue } from '../../hooks/useVideoDerivedDataQueue';
+import { useAutoThumbnailQueueStatus } from '../../hooks/useAutoThumbnailQueueStatus';
 
 import SearchBar from '../../components/SearchBar';
 import Pagination from '../../components/Pagination';
@@ -35,6 +36,7 @@ import TagDrawer from './components/TagDrawer';
 const VideosPage: React.FC = () => {
   const settings = useAppSettings();
   const mounts = useLiveQuery(() => db.mounts.toArray(), []) || [];
+  const queueStatus = useAutoThumbnailQueueStatus();
 
   const list = useVideoListUrlState();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -82,6 +84,12 @@ const VideosPage: React.FC = () => {
     maxDuration: list.maxDurationSec,
     tagSort: settings.tagSort,
   });
+
+  useEffect(() => {
+    if (!isLoading && list.currentPage > totalPages) {
+      list.setCurrentPage(totalPages);
+    }
+  }, [isLoading, list, totalPages]);
 
   const selectClassName = `${listControlFieldClassName} placeholder-text-dim`;
 
@@ -185,6 +193,17 @@ const VideosPage: React.FC = () => {
       </div>
 
       <TagPinnedRow pinnedTags={settings.pinnedTags} selectedTags={list.selectedTags} onToggleTag={list.toggleTag} />
+
+      {queueStatus.active && (
+        <div className="rounded-2xl border border-accent/20 bg-accent/10 px-4 py-3 text-sm text-text-main">
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div className="font-medium">サムネイルと動画情報を補完中</div>
+            <div className="text-xs text-text-dim">
+              処理中 {queueStatus.processing}件 / 待機 {queueStatus.queued}件 / 完了 {queueStatus.completed}件 / 失敗 {queueStatus.failed}件
+            </div>
+          </div>
+        </div>
+      )}
 
       {recentlyWatched.length > 0 && list.currentPage === 1 && !list.searchText && list.selectedTags.length === 0 && !list.selectedMountId && (
         <section className="space-y-3">

@@ -31,6 +31,7 @@ import InlineTitleEditor from '../../components/InlineTitleEditor';
 import { stripExt } from '../../utils/videoTitle';
 import { clearVideoTitleOverride, setVideoTitleOverride } from '../../services/videoMeta';
 import { queueAutoThumbnailGenerationForVideos } from '../../services/thumbnail';
+import { useAutoThumbnailQueueStatus } from '../../hooks/useAutoThumbnailQueueStatus';
 import { useVideoDerivedDataQueue } from '../../hooks/useVideoDerivedDataQueue';
 
 const BATCH_SIZE = 50;
@@ -69,6 +70,9 @@ const ManagePage: React.FC = () => {
   const [bulkProgress, setBulkProgress] = useState<{ current: number; total: number } | null>(null);
   const [undoSnapshot, setUndoSnapshot] = useState<Video[] | null>(null);
   const [lastActionDescription, setLastActionDescription] = useState<string | null>(null);
+  const queueStatus = useAutoThumbnailQueueStatus();
+  const autoProgressValue = queueStatus.total > 0 ? ((queueStatus.completed + queueStatus.failed) / queueStatus.total) * 100 : 0;
+  const showAutoProgress = !queueStatus.idle || queueStatus.total > 0;
 
   const displayedVideos = useMemo(() => {
     const text = normalizeText(filterText);
@@ -447,6 +451,41 @@ const ManagePage: React.FC = () => {
         {metadataNotice && (
           <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-3 rounded-lg text-sm">
             {metadataNotice}
+          </div>
+        )}
+
+        {showAutoProgress && (
+          <div className="rounded-xl border border-border bg-bg-panel px-4 py-4 space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <div className="text-sm font-medium text-text-main">自動補完の進捗</div>
+                <div className="text-xs text-text-dim mt-1">
+                  サムネイル生成と動画情報の補完をバックグラウンドで処理しています。
+                </div>
+              </div>
+              <div className="text-xs text-text-dim">
+                {queueStatus.active ? '処理中' : '待機なし'}
+              </div>
+            </div>
+
+            <div className="w-full bg-bg-surface h-2 rounded-full overflow-hidden">
+              <div className="bg-accent h-full transition-all duration-300" style={{ width: `${autoProgressValue}%` }} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs text-text-dim sm:grid-cols-4">
+              <div className="rounded-lg border border-border bg-bg-surface px-3 py-2">
+                処理中 {queueStatus.processing}件
+              </div>
+              <div className="rounded-lg border border-border bg-bg-surface px-3 py-2">
+                待機 {queueStatus.queued}件
+              </div>
+              <div className="rounded-lg border border-border bg-bg-surface px-3 py-2">
+                完了 {queueStatus.completed}件
+              </div>
+              <div className="rounded-lg border border-border bg-bg-surface px-3 py-2">
+                失敗 {queueStatus.failed}件
+              </div>
+            </div>
           </div>
         )}
 

@@ -25,7 +25,7 @@ import { exportDatabase, importDatabase } from '../../services/exportImport';
 import { fileSystem } from '../../services/fileSystem';
 import type { AppSettings, Video } from '../../types/domain';
 
-// Helper for tag normalization
+// タグ正規化ヘルパー
 const normalizeTag = (tag: string): string => {
   return tag.trim().toLowerCase().replace(/\s+/g, '-').replace(/^#/, '');
 };
@@ -47,41 +47,41 @@ const DEFAULT_SETTINGS: AppSettings = {
 };
 
 const SettingsPage: React.FC = () => {
-  // --- Global Settings State ---
+  // --- アプリ設定 ---
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
 
-  // Keep a ref so async updates always use the latest settings (prevents stale state races)
+  // 非同期更新中に常に最新設定を参照するための ref
   const appSettingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
   useEffect(() => {
     appSettingsRef.current = appSettings;
   }, [appSettings]);
 
-  // Serialize settings writes to avoid race conditions on rapid clicks
+  // 連打時の race condition を避けるため設定書き込みを直列化
   const settingsWriteQueueRef = useRef<Promise<void>>(Promise.resolve());
 
-  // --- Export/Import State ---
+  // --- エクスポート/インポート状態 ---
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
   const [isProcessingIO, setIsProcessingIO] = useState(false);
 
-  // --- Tag Manager State ---
+  // --- タグ管理状態 ---
   const [tags, setTags] = useState<TagStat[]>([]);
   const [isLoadingTags, setIsLoadingTags] = useState(false);
   const [tagSearch, setTagSearch] = useState('');
 
-  // Tag Actions
+  // タグ操作
   const [editingTag, setEditingTag] = useState<string | null>(null);
   const [renameInput, setRenameInput] = useState('');
 
-  // Pinned Tags State
+  // ピン留めタグ状態
   const [newPinInput, setNewPinInput] = useState('');
 
-  // Batch Progress
+  // 一括処理進捗
   const [progress, setProgress] = useState<{ current: number; total: number; message?: string } | null>(
     null
   );
 
-  // --- Initialization ---
+  // --- 初期化 ---
   const loadSettings = async () => {
     try {
       const s = await db.settings.get('app');
@@ -92,7 +92,7 @@ const SettingsPage: React.FC = () => {
       setAppSettings(merged);
       appSettingsRef.current = merged;
     } catch (err) {
-      console.error('Failed to load settings:', err);
+      console.error('設定の読み込みに失敗しました:', err);
     }
   };
 
@@ -115,7 +115,7 @@ const SettingsPage: React.FC = () => {
 
       setTags(sorted);
     } catch (err) {
-      console.error('Failed to load tags:', err);
+      console.error('タグの読み込みに失敗しました:', err);
     } finally {
       setIsLoadingTags(false);
     }
@@ -126,21 +126,21 @@ const SettingsPage: React.FC = () => {
     loadTags();
   }, []);
 
-  // --- Helpers: Tag query (index fast path + fallback) ---
+  // --- 補助: タグ検索（index fast path + fallback） ---
   const findVideosWithTag = async (tag: string): Promise<Video[]> => {
     try {
-      // Fast path (requires a multiEntry index on "tags" in Dexie schema)
+      // Fast path (Dexie schema に tags の multiEntry index が必要)
       const table = db.videos as any;
       return (await table.where('tags').equals(tag).toArray()) as Video[];
     } catch (err) {
-      // Fallback: always works (full scan)
-      console.warn('Tag index query failed; fallback to full scan.', err);
+      // Fallback: 常に動く（全件走査）
+      console.warn('タグ index 検索に失敗したため全件走査へフォールバックします。', err);
       const all = await db.videos.toArray();
       return all.filter((v) => (v.tags ?? []).includes(tag));
     }
   };
 
-  // --- Handlers: Settings Update ---
+  // --- 設定更新 ---
   const updateSettings = (updates: Partial<AppSettings>) => {
     settingsWriteQueueRef.current = settingsWriteQueueRef.current.then(async () => {
       const base = appSettingsRef.current;
@@ -151,8 +151,8 @@ const SettingsPage: React.FC = () => {
         appSettingsRef.current = next;
         setAppSettings(next);
       } catch (err) {
-        console.error('Failed to save settings:', err);
-        alert('Failed to save settings. See console for details.');
+        console.error('設定の保存に失敗しました:', err);
+        alert('設定の保存に失敗しました。詳細はコンソールを確認してください。');
       }
     });
 
@@ -169,12 +169,12 @@ const SettingsPage: React.FC = () => {
         await updateSettings({ thumbStore: 'idb' });
       }
     } catch (err) {
-      console.error('Failed to change thumbnail storage:', err);
-      alert('Failed to change thumbnail storage. See console for details.');
+      console.error('サムネイル保存先の変更に失敗しました:', err);
+      alert('サムネイル保存先の変更に失敗しました。詳細はコンソールを確認してください。');
     }
   };
 
-  // --- Handlers: Pinned Tags ---
+  // --- ピン留めタグ管理 ---
   const addPinnedTag = async () => {
     const tag = normalizeTag(newPinInput);
     if (!tag) return;
@@ -206,15 +206,15 @@ const SettingsPage: React.FC = () => {
     await updateSettings({ pinnedTags: next });
   };
 
-  // --- Handlers: Export/Import ---
+  // --- エクスポート/インポート ---
   const handleExport = async () => {
-    if (!window.confirm('Download database backup?')) return;
+    if (!window.confirm('データベースのバックアップをダウンロードしますか？')) return;
     setIsProcessingIO(true);
     try {
       await exportDatabase();
     } catch (err) {
       console.error(err);
-      alert('Export failed. See console for details.');
+      alert('エクスポートに失敗しました。詳細はコンソールを確認してください。');
     } finally {
       setIsProcessingIO(false);
     }
@@ -230,8 +230,8 @@ const SettingsPage: React.FC = () => {
 
     const msg =
       importMode === 'replace'
-        ? 'WARNING: "Replace" mode will DELETE all existing data before importing. Continue?'
-        : 'Import data (Merge mode)? Existing IDs will be overwritten.';
+        ? '警告: 「置き換え」モードでは既存データをすべて削除してからインポートします。続行しますか？'
+        : 'データをインポートしますか？（追加モード。既存 ID は上書きされます）';
 
     if (!window.confirm(msg)) {
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -242,24 +242,24 @@ const SettingsPage: React.FC = () => {
     try {
       const result = await importDatabase(file, importMode);
       alert(
-        `Import successful!\n` +
-          `Videos: ${result.videos}\n` +
-          `Mounts: ${result.mounts}\n\n` +
-          `IMPORTANT: File handles for folders and videos cannot be restored from backup.\n` +
-          `Please rescan your folders in the "Manage" page to restore access.`
+        `インポートが完了しました。\n` +
+          `動画: ${result.videos}\n` +
+          `フォルダ: ${result.mounts}\n\n` +
+          `重要: フォルダや動画のファイルハンドルはバックアップから復元できません。\n` +
+          `アクセスを戻すには「管理」ページで再スキャンしてください。`
       );
       await loadTags();
       await loadSettings();
     } catch (err) {
       console.error(err);
-      alert('Import failed. The file might be corrupted or invalid format.');
+      alert('インポートに失敗しました。ファイルが壊れているか、形式が不正な可能性があります。');
     } finally {
       setIsProcessingIO(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // --- Handlers: Tag Manager ---
+  // --- タグ管理 ---
   const startRename = (tag: string) => {
     setEditingTag(tag);
     setRenameInput(tag);
@@ -276,20 +276,20 @@ const SettingsPage: React.FC = () => {
     if (newTag === oldTag) return cancelRename();
 
     setEditingTag(null);
-    setProgress({ current: 0, total: 0, message: 'Finding videos...' });
+    setProgress({ current: 0, total: 0, message: '動画を検索中...' });
 
     try {
       const videosToUpdate = await findVideosWithTag(oldTag);
 
       if (videosToUpdate.length === 0) {
-        alert('No videos found with this tag.');
+        alert('このタグが付いた動画は見つかりませんでした。');
         return;
       }
 
       setProgress({
         current: 0,
         total: videosToUpdate.length,
-        message: `Renaming "${oldTag}" to "${newTag}"...`,
+        message: `「${oldTag}」を「${newTag}」へ変更中...`,
       });
 
       const updates: Video[] = videosToUpdate.map((v) => {
@@ -317,16 +317,16 @@ const SettingsPage: React.FC = () => {
       await loadTags();
     } catch (err) {
       console.error(err);
-      alert('Rename failed.');
+      alert('タグ名の変更に失敗しました。');
     } finally {
       setProgress(null);
     }
   };
 
   const executeDelete = async (tagToDelete: string) => {
-    if (!window.confirm(`Are you sure you want to delete tag "#${tagToDelete}" from all videos?`)) return;
+    if (!window.confirm(`タグ「#${tagToDelete}」をすべての動画から削除しますか？`)) return;
 
-    setProgress({ current: 0, total: 0, message: 'Finding videos...' });
+    setProgress({ current: 0, total: 0, message: '動画を検索中...' });
 
     try {
       const videosToUpdate = await findVideosWithTag(tagToDelete);
@@ -339,7 +339,7 @@ const SettingsPage: React.FC = () => {
       setProgress({
         current: 0,
         total: videosToUpdate.length,
-        message: `Deleting tag "${tagToDelete}"...`,
+        message: `タグ「${tagToDelete}」を削除中...`,
       });
 
       const updates: Video[] = videosToUpdate.map((v) => {
@@ -365,13 +365,13 @@ const SettingsPage: React.FC = () => {
       await loadTags();
     } catch (err) {
       console.error(err);
-      alert('Delete failed.');
+      alert('タグ削除に失敗しました。');
     } finally {
       setProgress(null);
     }
   };
 
-  // --- Derived ---
+  // --- 派生値 ---
   const needle = tagSearch.trim().toLowerCase();
   const filteredTags = needle ? tags.filter((t) => t.name.toLowerCase().includes(needle)) : tags;
 
@@ -381,29 +381,29 @@ const SettingsPage: React.FC = () => {
   const thumbFolderName =
     appSettings.thumbDirHandle && (appSettings.thumbDirHandle as any).name
       ? (appSettings.thumbDirHandle as any).name
-      : 'No folder selected';
+      : 'フォルダ未選択';
 
   return (
     <div className="max-w-5xl mx-auto space-y-12 pb-20">
       <div className="border-b border-border pb-6">
-        <h2 className="font-heading text-2xl font-bold">Settings</h2>
-        <p className="text-text-dim text-sm mt-1">Manage your preferences, data, and library configuration.</p>
+        <h2 className="font-heading text-2xl font-bold">設定</h2>
+        <p className="text-text-dim text-sm mt-1">設定、データ、ライブラリ構成を管理します。</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* --- Application Settings --- */}
+        {/* --- アプリ設定 --- */}
         <section className="space-y-4">
           <div className="flex items-center gap-2 text-lg font-medium text-text-main">
             <RiSettings4Line className="text-accent" />
-            <h3>Application Preferences</h3>
+            <h3>アプリ設定</h3>
           </div>
 
           <div className="bg-bg-panel border border-border rounded-xl p-6 space-y-6">
-            {/* Tag Sort */}
+            {/* タグ並び順 */}
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-sm font-medium text-text-main">Default Tag Sort</label>
-                <p className="text-xs text-text-dim">Order of tags in filters and drawers.</p>
+                <label className="text-sm font-medium text-text-main">タグの標準並び順</label>
+                <p className="text-xs text-text-dim">フィルターやドロワー内でのタグ順です。</p>
               </div>
               <div className="flex bg-bg-surface rounded-lg p-1 border border-border">
                 <button
@@ -415,7 +415,7 @@ const SettingsPage: React.FC = () => {
                       : 'text-text-muted hover:text-text-main'
                   )}
                 >
-                  Popular
+                  人気順
                 </button>
                 <button
                   onClick={() => void updateSettings({ tagSort: 'alpha' })}
@@ -426,16 +426,16 @@ const SettingsPage: React.FC = () => {
                       : 'text-text-muted hover:text-text-main'
                   )}
                 >
-                  A-Z
+                  名前順
                 </button>
               </div>
             </div>
 
-            {/* Filter Mode */}
+            {/* フィルタ条件 */}
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-sm font-medium text-text-main">Filter Logic</label>
-                <p className="text-xs text-text-dim">How multiple tags are combined.</p>
+                <label className="text-sm font-medium text-text-main">タグ絞り込み方式</label>
+                <p className="text-xs text-text-dim">複数タグの組み合わせ方を指定します。</p>
               </div>
               <div className="flex bg-bg-surface rounded-lg p-1 border border-border">
                 <button
@@ -447,7 +447,7 @@ const SettingsPage: React.FC = () => {
                       : 'text-text-muted hover:text-text-main'
                   )}
                 >
-                  AND (All)
+                  AND（すべて）
                 </button>
                 <button
                   onClick={() => void updateSettings({ filterMode: 'OR' })}
@@ -458,18 +458,18 @@ const SettingsPage: React.FC = () => {
                       : 'text-text-muted hover:text-text-main'
                   )}
                 >
-                  OR (Any)
+                  OR（いずれか）
                 </button>
               </div>
             </div>
 
             <div className="h-px bg-border/50 w-full" />
 
-            {/* Thumbnail Store */}
+            {/* サムネイル保存先 */}
             <div className="space-y-3">
               <div>
-                <label className="text-sm font-medium text-text-main">Thumbnail Storage</label>
-                <p className="text-xs text-text-dim">Where generated thumbnails are saved.</p>
+                <label className="text-sm font-medium text-text-main">サムネイル保存先</label>
+                <p className="text-xs text-text-dim">生成したサムネイルの保存場所です。</p>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -482,8 +482,8 @@ const SettingsPage: React.FC = () => {
                       : 'bg-bg-surface border-border text-text-muted hover:border-text-dim'
                   )}
                 >
-                  <div className="font-bold mb-1">IndexedDB (Default)</div>
-                  Saved in browser database. Easy backup, but may hit quota limits.
+                  <div className="font-bold mb-1">IndexedDB（標準）</div>
+                  ブラウザ内データベースに保存します。バックアップは簡単ですが、容量制限に当たる場合があります。
                 </button>
 
                 <button
@@ -495,8 +495,8 @@ const SettingsPage: React.FC = () => {
                       : 'bg-bg-surface border-border text-text-muted hover:border-text-dim'
                   )}
                 >
-                  <div className="font-bold mb-1">Local Folder</div>
-                  Saved as .webp files in a specific folder. Good for large libraries.
+                  <div className="font-bold mb-1">ローカルフォルダ</div>
+                  指定フォルダに `.webp` ファイルとして保存します。大きなライブラリ向けです。
                 </button>
               </div>
 
@@ -508,14 +508,13 @@ const SettingsPage: React.FC = () => {
                       onClick={() => void handleThumbStoreChange('folder')}
                       className="text-accent hover:underline flex items-center gap-1"
                     >
-                      <RiFolderOpenLine /> Select
+                      <RiFolderOpenLine /> 選択
                     </button>
                   </div>
                   <div className="text-orange-400/80 flex items-start gap-1.5">
                     <RiErrorWarningLine className="mt-0.5 shrink-0" />
                     <span>
-                      Folder handles cannot be exported. You must re-select this folder after importing/restoring a
-                      backup.
+                      フォルダハンドルはエクスポートできません。バックアップの復元後はこのフォルダを再選択してください。
                     </span>
                   </div>
                 </div>
@@ -524,21 +523,21 @@ const SettingsPage: React.FC = () => {
           </div>
         </section>
 
-        {/* --- Backup & Restore --- */}
+        {/* --- バックアップと復元 --- */}
         <section className="space-y-4">
           <div className="flex items-center gap-2 text-lg font-medium text-text-main">
             <RiDatabase2Line className="text-accent" />
-            <h3>Data Management</h3>
+            <h3>データ管理</h3>
           </div>
 
           <div className="bg-bg-panel border border-border rounded-xl p-6 space-y-6 h-fit">
             <div className="space-y-3">
-              <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider">Backup</h4>
+              <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider">バックアップ</h4>
               <p className="text-sm text-text-dim">
-                Export all metadata (videos, tags, mounts, settings) to a JSON file.
+                すべてのメタデータ（動画、タグ、フォルダ、設定）を JSON ファイルへ書き出します。
                 <br />
                 <span className="text-orange-400/80 text-xs flex items-center gap-1 mt-1">
-                  <RiErrorWarningLine /> File handles are not included.
+                  <RiErrorWarningLine /> ファイルハンドルは含まれません。
                 </span>
               </p>
               <button
@@ -547,15 +546,15 @@ const SettingsPage: React.FC = () => {
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-bg-surface border border-border rounded-lg hover:border-accent hover:text-accent transition-colors text-sm"
               >
                 {isProcessingIO ? <RiLoader4Line className="animate-spin" /> : <RiDownloadCloud2Line />}
-                Export JSON
+                JSON を書き出す
               </button>
             </div>
 
             <div className="h-px bg-border/50 w-full" />
 
             <div className="space-y-3">
-              <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider">Restore</h4>
-              <p className="text-sm text-text-dim">Import data from a backup JSON file.</p>
+              <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider">復元</h4>
+              <p className="text-sm text-text-dim">バックアップ JSON ファイルからデータを読み込みます。</p>
 
               <div className="flex items-center gap-3 text-sm justify-center">
                 <label className="flex items-center gap-1.5 cursor-pointer">
@@ -566,7 +565,7 @@ const SettingsPage: React.FC = () => {
                     onChange={() => setImportMode('merge')}
                     className="accent-accent"
                   />
-                  <span>Merge</span>
+                  <span>追加</span>
                 </label>
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
@@ -576,7 +575,7 @@ const SettingsPage: React.FC = () => {
                     onChange={() => setImportMode('replace')}
                     className="accent-red-500"
                   />
-                  <span>Replace</span>
+                  <span>置き換え</span>
                 </label>
               </div>
 
@@ -587,18 +586,18 @@ const SettingsPage: React.FC = () => {
                 className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-bg-surface border border-border rounded-lg hover:border-accent hover:text-accent transition-colors text-sm"
               >
                 {isProcessingIO ? <RiLoader4Line className="animate-spin" /> : <RiUploadCloud2Line />}
-                Select File & Import
+                ファイルを選んで読み込む
               </button>
             </div>
           </div>
         </section>
       </div>
 
-      {/* --- Pinned Tags Manager --- */}
+      {/* --- ピン留めタグ管理 --- */}
       <section className="space-y-4">
         <div className="flex items-center gap-2 text-lg font-medium text-text-main">
           <RiPushpinLine className="text-accent" />
-          <h3>Pinned Tags</h3>
+          <h3>ピン留めタグ</h3>
         </div>
 
         <div className="bg-bg-panel border border-border rounded-xl p-6">
@@ -607,7 +606,7 @@ const SettingsPage: React.FC = () => {
               type="text"
               value={newPinInput}
               onChange={(e) => setNewPinInput(e.target.value)}
-              placeholder="Add tag to pin..."
+              placeholder="ピン留めするタグを追加..."
               className="bg-bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text-main focus:outline-none focus:border-accent flex-1"
               onKeyDown={(e) => e.key === 'Enter' && void addPinnedTag()}
             />
@@ -621,7 +620,7 @@ const SettingsPage: React.FC = () => {
           </div>
 
           {(appSettings.pinnedTags ?? []).length === 0 ? (
-            <div className="text-center py-4 text-text-dim text-sm italic">No pinned tags. Add some for quick access.</div>
+            <div className="text-center py-4 text-text-dim text-sm italic">ピン留めタグはありません。よく使うタグを追加してください。</div>
           ) : (
             <div className="flex flex-wrap gap-2">
               {(appSettings.pinnedTags ?? []).map((tag, idx) => (
@@ -635,7 +634,7 @@ const SettingsPage: React.FC = () => {
                       onClick={() => void movePinnedTag(idx, 'up')}
                       disabled={idx === 0}
                       className="text-[10px] hover:text-accent disabled:opacity-20"
-                      title="Move up"
+                      title="上へ移動"
                     >
                       <RiArrowUpLine />
                     </button>
@@ -643,7 +642,7 @@ const SettingsPage: React.FC = () => {
                       onClick={() => void movePinnedTag(idx, 'down')}
                       disabled={idx === (appSettings.pinnedTags ?? []).length - 1}
                       className="text-[10px] hover:text-accent disabled:opacity-20"
-                      title="Move down"
+                      title="下へ移動"
                     >
                       <RiArrowDownLine />
                     </button>
@@ -651,7 +650,7 @@ const SettingsPage: React.FC = () => {
                   <button
                     onClick={() => void removePinnedTag(tag)}
                     className="ml-1 p-1 hover:text-red-400 opacity-50 hover:opacity-100 transition-opacity"
-                    title="Remove"
+                    title="削除"
                   >
                     <RiCloseLine />
                   </button>
@@ -662,18 +661,18 @@ const SettingsPage: React.FC = () => {
         </div>
       </section>
 
-      {/* --- Tag Manager (Rename/Delete) --- */}
+      {/* --- タグ管理（名称変更 / 削除） --- */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-lg font-medium text-text-main">
             <RiPriceTag3Line className="text-accent" />
-            <h3>Tag Database</h3>
+            <h3>タグデータベース</h3>
           </div>
           <div className="relative">
             <RiSearchLine className="absolute left-3 top-1/2 -translate-y-1/2 text-text-dim" />
             <input
               type="text"
-              placeholder="Filter tags..."
+              placeholder="タグを検索..."
               value={tagSearch}
               onChange={(e) => setTagSearch(e.target.value)}
               className="bg-bg-panel border border-border rounded-lg py-1.5 pl-9 pr-3 text-sm focus:outline-none focus:border-accent/50 w-48"
@@ -706,16 +705,16 @@ const SettingsPage: React.FC = () => {
             </div>
           ) : filteredTags.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-text-dim opacity-60">
-              <p>No tags found.</p>
+              <p>タグが見つかりません。</p>
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto max-h-[500px] scrollbar-thin">
               <table className="w-full text-left text-sm border-collapse">
                 <thead className="bg-bg-surface sticky top-0 z-10 text-xs uppercase text-text-muted font-medium border-b border-border">
                   <tr>
-                    <th className="px-4 py-3">Tag Name</th>
-                    <th className="px-4 py-3 w-24 text-center">Count</th>
-                    <th className="px-4 py-3 w-32 text-right">Actions</th>
+                    <th className="px-4 py-3">タグ名</th>
+                    <th className="px-4 py-3 w-24 text-center">件数</th>
+                    <th className="px-4 py-3 w-32 text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/50">
@@ -739,14 +738,14 @@ const SettingsPage: React.FC = () => {
                             <button
                               onClick={() => void executeRename(tag.name)}
                               className="text-accent hover:bg-accent/10 p-1 rounded"
-                              title="Apply"
+                              title="適用"
                             >
                               <RiCheckLine />
                             </button>
                             <button
                               onClick={cancelRename}
                               className="text-text-dim hover:bg-red-500/10 hover:text-red-500 p-1 rounded"
-                              title="Cancel"
+                              title="キャンセル"
                             >
                               <RiCloseLine />
                             </button>
@@ -765,14 +764,14 @@ const SettingsPage: React.FC = () => {
                             <button
                               onClick={() => startRename(tag.name)}
                               className="p-1.5 text-text-dim hover:text-text-main hover:bg-bg-surface rounded transition-colors"
-                              title="Rename"
+                              title="名前を変更"
                             >
                               <RiEdit2Line />
                             </button>
                             <button
                               onClick={() => void executeDelete(tag.name)}
                               className="p-1.5 text-text-dim hover:text-red-400 hover:bg-red-400/10 rounded transition-colors"
-                              title="Delete"
+                              title="削除"
                             >
                               <RiDeleteBinLine />
                             </button>

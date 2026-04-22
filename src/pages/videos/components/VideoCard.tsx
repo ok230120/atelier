@@ -6,6 +6,7 @@ import classNames from 'classnames';
 import { RiPlayCircleFill, RiMovieFill } from 'react-icons/ri';
 
 import type { Video } from '../../../types/domain';
+import { useAutoThumbnailVideoStatus } from '../../../hooks/useAutoThumbnailQueueStatus';
 import { getVideoDisplayTitle } from '../../../utils/videoDisplay';
 import FavoriteToggleButton from './FavoriteToggleButton';
 
@@ -27,6 +28,7 @@ const VideoCard: React.FC<VideoCardProps> = ({ video, className }) => {
 
   const title = getVideoDisplayTitle(video);
   const durationStr = formatDuration(video.durationSec);
+  const queueStatus = useAutoThumbnailVideoStatus(video.id, video.thumbnailSource !== 'manual');
 
   // 一覧の ?tag=... 等を詳細にも引き継ぐ
   const toDetail = `/video/${encodeURIComponent(video.id)}/view${location.search}`;
@@ -59,6 +61,19 @@ const VideoCard: React.FC<VideoCardProps> = ({ video, className }) => {
         <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 transform scale-90 group-hover:scale-100">
           <RiPlayCircleFill className="text-5xl text-white drop-shadow-lg" />
         </div>
+
+        {!video.thumbnail && queueStatus && (
+          <div
+            className={classNames(
+              'absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium backdrop-blur-sm',
+              queueStatus === 'queued' && 'bg-black/65 text-white',
+              queueStatus === 'processing' && 'bg-accent/85 text-white',
+              queueStatus === 'failed' && 'bg-red-500/85 text-white',
+            )}
+          >
+            {queueStatus === 'queued' ? '生成待ち' : queueStatus === 'processing' ? '生成中' : '失敗'}
+          </div>
+        )}
 
         {durationStr && (
           <div className="absolute bottom-2 right-2 px-1.5 py-0.5 bg-black/80 text-white text-[10px] font-bold rounded tracking-wider backdrop-blur-sm">

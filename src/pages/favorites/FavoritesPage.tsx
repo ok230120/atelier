@@ -1,5 +1,5 @@
 // FILE: src/pages/favorites/FavoritesPage.tsx
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
@@ -67,6 +67,12 @@ const FavoritesPage: React.FC = () => {
     maxDuration: list.maxDurationSec,
     tagSort: settings.tagSort,
   });
+
+  useEffect(() => {
+    if (!isLoading && list.currentPage > totalPages) {
+      list.setCurrentPage(totalPages);
+    }
+  }, [isLoading, list, totalPages]);
 
   const selectClassName = `${listControlFieldClassName} placeholder-text-dim`;
 

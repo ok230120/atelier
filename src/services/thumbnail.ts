@@ -12,10 +12,85 @@ const MAX_PARALLEL_JOBS = 2;
 const queuedVideoIds = new Set<string>();
 const activeVideoIds = new Set<string>();
 const pendingJobs: Array<() => Promise<void>> = [];
+const failedVideoIds = new Set<string>();
+
+export type AutoThumbnailVideoStatus = 'queued' | 'processing' | 'failed';
+
+export interface AutoThumbnailQueueSnapshot {
+  queued: number;
+  processing: number;
+  completed: number;
+  failed: number;
+  total: number;
+  active: boolean;
+  idle: boolean;
+  videoStatuses: Record<string, AutoThumbnailVideoStatus>;
+}
+
+const queueListeners = new Set<() => void>();
+let queueSnapshot: AutoThumbnailQueueSnapshot = {
+  queued: 0,
+  processing: 0,
+  completed: 0,
+  failed: 0,
+  total: 0,
+  active: false,
+  idle: true,
+  videoStatuses: {},
+};
 
 /**
  * Service for handling thumbnail generation and manipulation.
  */
+
+function emitQueueSnapshot() {
+  for (const listener of queueListeners) {
+    listener();
+  }
+}
+
+function setQueueSnapshot(
+  updater: AutoThumbnailQueueSnapshot | ((current: AutoThumbnailQueueSnapshot) => AutoThumbnailQueueSnapshot),
+) {
+  queueSnapshot = typeof updater === 'function' ? updater(queueSnapshot) : updater;
+  emitQueueSnapshot();
+}
+
+function updateQueueSnapshot(mutator: (current: AutoThumbnailQueueSnapshot) => AutoThumbnailQueueSnapshot) {
+  setQueueSnapshot(mutator);
+}
+
+function withVideoStatus(
+  current: AutoThumbnailQueueSnapshot,
+  videoId: string,
+  status?: AutoThumbnailVideoStatus,
+): AutoThumbnailQueueSnapshot {
+  const nextStatuses = { ...current.videoStatuses };
+  if (status) nextStatuses[videoId] = status;
+  else delete nextStatuses[videoId];
+
+  const queued = queuedVideoIds.size;
+  const processing = activeVideoIds.size;
+  return {
+    ...current,
+    queued,
+    processing,
+    active: queued > 0 || processing > 0,
+    idle: queued === 0 && processing === 0,
+    videoStatuses: nextStatuses,
+  };
+}
+
+export function subscribeAutoThumbnailQueue(listener: () => void) {
+  queueListeners.add(listener);
+  return () => {
+    queueListeners.delete(listener);
+  };
+}
+
+export function getAutoThumbnailQueueSnapshot(): AutoThumbnailQueueSnapshot {
+  return queueSnapshot;
+}
 
 // Capture current frame from a video element
 export async function captureCurrentFrame(
@@ -223,6 +298,7 @@ export async function generateAutoThumbnailForVideo(video: Video): Promise<void>
     }
   } catch (err) {
     console.error(`Failed to generate automatic thumbnail for ${video.id}:`, err);
+    throw err;
   } finally {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
   }
@@ -243,13 +319,33 @@ export function queueAutoThumbnailGeneration(video: Video) {
   if (queuedVideoIds.has(video.id) || activeVideoIds.has(video.id)) return;
 
   queuedVideoIds.add(video.id);
+  failedVideoIds.delete(video.id);
+  updateQueueSnapshot((current) => ({
+    ...withVideoStatus(current, video.id, 'queued'),
+    total: current.total + 1,
+  }));
   pendingJobs.push(async () => {
     queuedVideoIds.delete(video.id);
     activeVideoIds.add(video.id);
+    updateQueueSnapshot((current) => withVideoStatus(current, video.id, 'processing'));
     try {
       await generateAutoThumbnailForVideo(video);
+      updateQueueSnapshot((current) => ({
+        ...withVideoStatus(current, video.id),
+        completed: current.completed + 1,
+      }));
+    } catch (err) {
+      failedVideoIds.add(video.id);
+      updateQueueSnapshot((current) => ({
+        ...withVideoStatus(current, video.id, 'failed'),
+        failed: current.failed + 1,
+      }));
     } finally {
       activeVideoIds.delete(video.id);
+      updateQueueSnapshot((current) => {
+        const status = failedVideoIds.has(video.id) ? 'failed' : undefined;
+        return withVideoStatus(current, video.id, status);
+      });
       runQueue();
     }
   });

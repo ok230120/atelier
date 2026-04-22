@@ -50,8 +50,6 @@ export const useVideosQuery = ({
           .between([mountId, Dexie.minKey], [mountId, Dexie.maxKey]);
       } else if (favoritesOnly) {
         collection = db.videos.where('favorite').equals(1);
-      } else if (excludeMissing) {
-        collection = db.videos.where('isMissing').notEqual(1);
       } else if (sort === 'recentlyPlayed') {
         collection = db.videos.orderBy('lastPlayedAt').reverse();
       } else if (sort === 'mostPlayed') {

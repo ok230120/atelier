@@ -4,6 +4,7 @@ import type {
   ImageRecord,
   ImageTagCategoryRecord,
   ImageTagRecord,
+  LegacyImageImportResult,
 } from '../types/domain';
 import {
   addTagsToImagesDesktop,
@@ -27,6 +28,7 @@ import {
   mergeImageTagsDesktop,
   moveImageTagCategoryDesktop,
   pickImageMountPath,
+  relinkImageMountDesktop,
   removeImageMountDesktop,
   removeMissingImagesDesktop,
   removeTagsFromImagesDesktop,
@@ -165,6 +167,10 @@ export async function createImageMount(basePath: string, includeSubdirs = true):
 
 export async function removeImageMount(mountId: string): Promise<void> {
   await removeImageMountDesktop(mountId);
+}
+
+export async function relinkImageMount(mountId: string, basePath: string): Promise<ImageMount> {
+  return relinkImageMountDesktop(mountId, basePath);
 }
 
 export async function scanImageMount(mountId: string): Promise<ScanProgress> {
@@ -310,6 +316,6 @@ export async function getImageStorageInfo(): Promise<ImageStorageInfo> {
   };
 }
 
-export async function importLegacyImageData(payload: string): Promise<void> {
-  await importLegacyImageDataDesktop(payload);
+export async function importLegacyImageData(payload: string): Promise<LegacyImageImportResult> {
+  return importLegacyImageDataDesktop(payload);
 }

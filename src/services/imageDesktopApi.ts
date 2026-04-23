@@ -3,6 +3,7 @@ import type {
   ImageRecord,
   ImageTagCategoryRecord,
   ImageTagRecord,
+  LegacyImageImportResult,
 } from '../types/domain';
 import { invokeTauri } from './tauri';
 
@@ -44,6 +45,10 @@ export async function createImageMountDesktop(basePath: string, includeSubdirs =
 
 export async function removeImageMountDesktop(mountId: string) {
   return invokeTauri<void>('remove_image_mount', { mountId });
+}
+
+export async function relinkImageMountDesktop(mountId: string, basePath: string) {
+  return invokeTauri<ImageMount>('relink_image_mount', { mountId, basePath });
 }
 
 export async function listImageMountsDesktop() {
@@ -169,5 +174,5 @@ export async function importImagesDesktop(args: {
 }
 
 export async function importLegacyImageDataDesktop(payload: string) {
-  return invokeTauri<void>('import_legacy_image_data', { payload });
+  return invokeTauri<LegacyImageImportResult>('import_legacy_image_data', { payload });
 }

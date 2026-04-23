@@ -99,7 +99,7 @@ export default function ImageDetailPage() {
   if (!image) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-text-dim">画像を読み込んでいます...</p>
+        <p className="text-text-dim">画像を読み込み中です...</p>
       </div>
     );
   }
@@ -125,9 +125,20 @@ export default function ImageDetailPage() {
 
         {imageUrl ? (
           <img src={imageUrl} alt={image.fileName} className="max-h-full max-w-full object-contain" />
+        ) : mount?.isAvailable === false ? (
+          <div className="text-center text-white/70">
+            <p className="text-sm">元フォルダが見つからないため表示できません。</p>
+            <button
+              type="button"
+              onClick={() => navigate('/images/manage')}
+              className="mt-4 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm text-white transition-colors hover:bg-white/15"
+            >
+              画像管理へ戻る
+            </button>
+          </div>
         ) : (
           <div className="text-center text-white/40">
-            <p className="text-sm">画像を読み込んでいます</p>
+            <p className="text-sm">画像を読み込めませんでした。</p>
           </div>
         )}
       </div>
@@ -149,7 +160,12 @@ export default function ImageDetailPage() {
             {mount && (
               <div className="flex gap-2">
                 <span className="w-16 shrink-0 text-text-dim">マウント</span>
-                <span className="text-text-muted">{mount.name}</span>
+                <span className="text-text-muted">
+                  {mount.name}
+                  {mount.isAvailable === false && (
+                    <span className="ml-2 text-orange-300/80">再指定待ち</span>
+                  )}
+                </span>
               </div>
             )}
             {image.folderPath && (

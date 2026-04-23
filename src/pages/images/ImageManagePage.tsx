@@ -7,6 +7,7 @@ import {
   RiDeleteBin7Line,
   RiErrorWarningLine,
   RiFolderAddLine,
+  RiFolderOpenLine,
   RiImageAddLine,
   RiRefreshLine,
   RiUploadCloud2Line,
@@ -19,6 +20,7 @@ import {
   listImageMounts,
   listMissingImages,
   pickImageMount,
+  relinkImageMount,
   removeImageMount,
   removeMissingImages,
   scanImageMount,
@@ -28,6 +30,7 @@ import {
 export default function ImageManagePage() {
   const navigate = useNavigate();
   const importInputRef = useRef<HTMLInputElement>(null);
+
   const [mounts, setMounts] = useState<ImageMount[]>([]);
   const [missingImages, setMissingImages] = useState<ImageRecord[]>([]);
   const [scanning, setScanning] = useState<Record<string, ScanProgress>>({});
@@ -91,8 +94,22 @@ export default function ImageManagePage() {
     }
   };
 
+  const handleRelinkMount = async (mount: ImageMount) => {
+    setActionMessage(null);
+
+    try {
+      const basePath = await pickImageMount();
+      if (!basePath) return;
+      await relinkImageMount(mount.id, basePath);
+      await runScan(mount.id);
+      setActionMessage(`「${mount.name}」のフォルダを再指定しました。`);
+    } catch (error) {
+      setActionMessage(error instanceof Error ? error.message : 'フォルダの再指定に失敗しました。');
+    }
+  };
+
   const handleRemoveMount = async (mountId: string) => {
-    if (!window.confirm('このフォルダ登録と画像メタ情報を削除しますか。元の画像ファイルは削除されません。')) {
+    if (!window.confirm('このフォルダ登録と画像メタ情報を削除します。元の画像ファイルは削除されません。')) {
       return;
     }
 
@@ -101,7 +118,7 @@ export default function ImageManagePage() {
   };
 
   const handleRemoveMissing = async (imageId: string) => {
-    if (!window.confirm('見つからない画像レコードを削除しますか。')) {
+    if (!window.confirm('見つからない画像レコードを削除しますか？')) {
       return;
     }
 
@@ -119,7 +136,7 @@ export default function ImageManagePage() {
 
   const handleRemoveAllMissing = async () => {
     if (missingImages.length === 0) return;
-    if (!window.confirm(`見つからない画像を ${missingImages.length} 件まとめて削除しますか。`)) {
+    if (!window.confirm(`見つからない画像を ${missingImages.length} 件まとめて削除しますか？`)) {
       return;
     }
 
@@ -144,8 +161,10 @@ export default function ImageManagePage() {
     if (!file) return;
 
     try {
-      await importLegacyImageData(await file.text());
-      setActionMessage('旧データを取り込みました。');
+      const result = await importLegacyImageData(await file.text());
+      setActionMessage(
+        `旧データを取り込みました。画像 ${result.importedImages} 件 / タグ ${result.importedTags} 件。バックアップ: ${result.backupPath}`,
+      );
       await reload();
     } catch (error) {
       setActionMessage(error instanceof Error ? error.message : '旧データの取り込みに失敗しました。');
@@ -177,7 +196,7 @@ export default function ImageManagePage() {
         <div>
           <h1 className="font-heading text-2xl text-text-main">画像フォルダ管理</h1>
           <p className="mt-0.5 text-sm text-text-dim">
-            Tauri + SQLite 構成で使う画像ライブラリフォルダを管理します。
+            Tauri + SQLite で使用する画像ライブラリのフォルダと旧データ移行を管理します。
           </p>
         </div>
 
@@ -234,23 +253,39 @@ export default function ImageManagePage() {
         <div className="space-y-3">
           {mounts.map((mount) => {
             const progress = scanning[mount.id];
+            const isMissingMount = mount.isAvailable === false;
 
             return (
               <div key={mount.id} className="rounded-2xl border border-border bg-bg-panel p-5">
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <h2 className="truncate font-heading text-base text-text-main">{mount.name}</h2>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate font-heading text-base text-text-main">{mount.name}</h2>
+                      {isMissingMount && (
+                        <span className="rounded-full border border-orange-500/30 bg-orange-500/10 px-2 py-0.5 text-[11px] text-orange-200">
+                          見つからないフォルダ
+                        </span>
+                      )}
+                    </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-text-dim">
                       <span>{mount.imageCount !== undefined ? `${mount.imageCount} 件` : '未スキャン'}</span>
                       {mount.lastScannedAt && (
                         <span>最終スキャン: {new Date(mount.lastScannedAt).toLocaleString('ja-JP')}</span>
                       )}
                       {mount.basePath && <span className="break-all">{mount.basePath}</span>}
+                      {isMissingMount && (
+                        <span>{mount.missingImageCount ?? 0} 件の画像が再リンク待ちです</span>
+                      )}
                     </div>
+                    {isMissingMount && (
+                      <p className="mt-2 text-xs text-orange-200/90">
+                        保存先パスが存在しないため再指定が必要です。再指定後に再スキャンします。
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {!progress && (
+                    {!progress && !isMissingMount && (
                       <button
                         type="button"
                         onClick={() => void runScan(mount.id)}
@@ -258,6 +293,17 @@ export default function ImageManagePage() {
                       >
                         <RiRefreshLine size={14} />
                         再スキャン
+                      </button>
+                    )}
+
+                    {!progress && isMissingMount && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRelinkMount(mount)}
+                        className="flex items-center gap-1.5 rounded-xl border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-xs text-orange-200 transition-colors hover:bg-orange-500/15"
+                      >
+                        <RiFolderOpenLine size={14} />
+                        フォルダを再指定
                       </button>
                     )}
 
@@ -295,7 +341,7 @@ export default function ImageManagePage() {
                   </div>
                 )}
 
-                {!progress && mount.lastScannedAt && (
+                {!progress && mount.lastScannedAt && !isMissingMount && (
                   <div className="mt-3 flex items-center gap-1 text-xs text-green-500/70">
                     <RiCheckLine size={12} />
                     スキャン済み

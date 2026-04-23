@@ -57,6 +57,8 @@ struct ImageMount {
     added_at: i64,
     last_scanned_at: Option<i64>,
     image_count: Option<i64>,
+    is_available: Option<bool>,
+    missing_image_count: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -161,6 +163,25 @@ struct LegacyImageData {
     image_tag_readings_backfill_done_at: Option<i64>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LegacyImageExportEnvelope {
+    app: String,
+    kind: String,
+    schema_version: i64,
+    exported_at: String,
+    data: LegacyImageData,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct LegacyImageImportResult {
+    backup_path: String,
+    imported_mounts: i64,
+    imported_images: i64,
+    imported_tags: i64,
+}
+
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
@@ -189,10 +210,97 @@ fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("atelier.db"))
 }
 
+fn backup_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app_data_dir(app)?.join("backups");
+    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+    Ok(dir)
+}
+
 fn thumbnail_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app_cache_dir(app)?.join("image-thumbnails");
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     Ok(dir)
+}
+
+fn mount_path_is_available(base_path: &str) -> bool {
+    let trimmed = base_path.trim();
+    !trimmed.is_empty() && Path::new(trimmed).exists()
+}
+
+fn backup_current_database(app: &AppHandle) -> Result<String, String> {
+    let source = db_path(app)?;
+    if !source.exists() {
+        let conn = Connection::open(&source).map_err(|error| error.to_string())?;
+        init_schema(&conn)?;
+    }
+
+    let file_name = format!(
+        "atelier-pre-import-{}.db",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    );
+    let destination = backup_dir(app)?.join(file_name);
+    fs::copy(&source, &destination).map_err(|error| error.to_string())?;
+    Ok(destination.to_string_lossy().to_string())
+}
+
+fn merge_recent_folders(
+    existing: Vec<RecentFolder>,
+    imported: Vec<RecentFolder>,
+) -> Vec<RecentFolder> {
+    let mut merged = Vec::new();
+    let mut imported_map = HashMap::new();
+
+    for entry in imported {
+        let key = (entry.mount_id.clone(), entry.folder_path.clone());
+        imported_map
+            .entry(key)
+            .and_modify(|current: &mut RecentFolder| {
+                if entry.used_at > current.used_at {
+                    current.used_at = entry.used_at;
+                }
+            })
+            .or_insert(entry);
+    }
+
+    for entry in imported_map.values() {
+        merged.push(entry.clone());
+    }
+
+    for entry in existing {
+        let key = (entry.mount_id.clone(), entry.folder_path.clone());
+        if let Some(current) = imported_map.get(&key) {
+            let mut next = current.clone();
+            if entry.used_at > next.used_at {
+                next.used_at = entry.used_at;
+            }
+            if let Some(slot) = merged
+                .iter_mut()
+                .find(|item| item.mount_id == key.0 && item.folder_path == key.1)
+            {
+                *slot = next;
+            }
+            continue;
+        }
+        merged.push(entry);
+    }
+
+    merged.truncate(8);
+    merged
+}
+
+fn merge_recent_tag_ids(existing: Vec<String>, imported: Vec<String>) -> Vec<String> {
+    imported
+        .into_iter()
+        .chain(existing)
+        .fold(Vec::new(), |mut acc, tag_id| {
+            if !acc.contains(&tag_id) {
+                acc.push(tag_id);
+            }
+            acc
+        })
+        .into_iter()
+        .take(12)
+        .collect()
 }
 
 fn open_db(app: &AppHandle) -> Result<Connection, String> {
@@ -513,25 +621,54 @@ fn load_image_record_by_mount_relative(
     hydrate_image_record(conn, image)
 }
 
-fn fetch_mount(conn: &Connection, mount_id: &str) -> Result<Option<ImageMount>, String> {
+fn mount_image_count(conn: &Connection, mount_id: &str) -> Result<i64, String> {
     conn.query_row(
-        "SELECT id, name, base_path, include_subdirs, added_at, last_scanned_at, image_count
-       FROM image_mounts WHERE id = ?1",
+        "SELECT COUNT(*) FROM images WHERE mount_id = ?1",
         params![mount_id],
-        |row| {
-            Ok(ImageMount {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                base_path: row.get(2)?,
-                include_subdirs: row.get::<_, i64>(3)? != 0,
-                added_at: row.get(4)?,
-                last_scanned_at: row.get(5)?,
-                image_count: row.get(6)?,
-            })
-        },
+        |row| row.get(0),
     )
-    .optional()
     .map_err(|error| error.to_string())
+}
+
+fn decorate_mount(conn: &Connection, mut mount: ImageMount) -> Result<ImageMount, String> {
+    let is_available = mount_path_is_available(&mount.base_path);
+    let missing_image_count = if is_available {
+        0
+    } else {
+        mount_image_count(conn, &mount.id)?
+    };
+    mount.is_available = Some(is_available);
+    mount.missing_image_count = Some(missing_image_count);
+    Ok(mount)
+}
+
+fn fetch_mount(conn: &Connection, mount_id: &str) -> Result<Option<ImageMount>, String> {
+    let mount = conn
+        .query_row(
+            "SELECT id, name, base_path, include_subdirs, added_at, last_scanned_at, image_count
+       FROM image_mounts WHERE id = ?1",
+            params![mount_id],
+            |row| {
+                Ok(ImageMount {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    base_path: row.get(2)?,
+                    include_subdirs: row.get::<_, i64>(3)? != 0,
+                    added_at: row.get(4)?,
+                    last_scanned_at: row.get(5)?,
+                    image_count: row.get(6)?,
+                    is_available: None,
+                    missing_image_count: None,
+                })
+            },
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    match mount {
+        Some(mount) => Ok(Some(decorate_mount(conn, mount)?)),
+        None => Ok(None),
+    }
 }
 
 fn update_auto_tags_for_image(
@@ -674,6 +811,58 @@ fn write_thumbnail(path: &Path, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn resolve_import_image_id(conn: &Connection, image: &ImageRecord) -> Result<String, String> {
+    let existing_by_id: Option<String> = conn
+        .query_row(
+            "SELECT id FROM images WHERE id = ?1",
+            params![image.id.clone()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    if let Some(existing_id) = existing_by_id {
+        return Ok(existing_id);
+    }
+
+    let existing_by_path: Option<String> = conn
+        .query_row(
+            "SELECT id FROM images WHERE mount_id = ?1 AND relative_path = ?2",
+            params![image.mount_id.clone(), image.relative_path.clone()],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    Ok(existing_by_path.unwrap_or_else(|| image.id.clone()))
+}
+
+fn normalized_import_links(image: &ImageRecord) -> Vec<(String, &'static str)> {
+    let auto_ids: HashSet<&String> = image.auto_tag_ids.iter().collect();
+    let mut links = Vec::new();
+    let mut seen = HashSet::new();
+
+    for tag_id in &image.tags {
+        if !seen.insert(tag_id.clone()) {
+            continue;
+        }
+        let source = if auto_ids.contains(tag_id) {
+            "auto"
+        } else {
+            "manual"
+        };
+        links.push((tag_id.clone(), source));
+    }
+
+    for tag_id in &image.auto_tag_ids {
+        if seen.insert(tag_id.clone()) {
+            links.push((tag_id.clone(), "auto"));
+        }
+    }
+
+    links
+}
+
 #[tauri::command]
 fn pick_image_mount() -> Option<String> {
     FileDialog::new()
@@ -703,6 +892,8 @@ fn create_image_mount(
         added_at: now,
         last_scanned_at: None,
         image_count: Some(0),
+        is_available: Some(mount_path_is_available(&path.to_string_lossy())),
+        missing_image_count: Some(0),
     };
     conn
     .execute(
@@ -710,7 +901,7 @@ fn create_image_mount(
       params![mount.id, mount.name, mount.base_path, bool_to_i64(mount.include_subdirs), mount.added_at],
     )
     .map_err(|error| error.to_string())?;
-    Ok(mount)
+    decorate_mount(&conn, mount)
 }
 
 #[tauri::command]
@@ -732,6 +923,31 @@ fn remove_image_mount(app: AppHandle, mount_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn relink_image_mount(
+    app: AppHandle,
+    mount_id: String,
+    base_path: String,
+) -> Result<ImageMount, String> {
+    let conn = open_db(&app)?;
+    let existing =
+        fetch_mount(&conn, &mount_id)?.ok_or_else(|| "Image mount not found.".to_string())?;
+    let path = PathBuf::from(&base_path);
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(&existing.name)
+        .to_string();
+
+    conn.execute(
+        "UPDATE image_mounts SET name = ?2, base_path = ?3 WHERE id = ?1",
+        params![mount_id.clone(), name, base_path],
+    )
+    .map_err(|error| error.to_string())?;
+
+    fetch_mount(&conn, &mount_id)?.ok_or_else(|| "Image mount not found.".to_string())
+}
+
+#[tauri::command]
 fn list_image_mounts(app: AppHandle) -> Result<Vec<ImageMount>, String> {
     let conn = open_db(&app)?;
     let mut statement = conn
@@ -750,13 +966,18 @@ fn list_image_mounts(app: AppHandle) -> Result<Vec<ImageMount>, String> {
                 added_at: row.get(4)?,
                 last_scanned_at: row.get(5)?,
                 image_count: row.get(6)?,
+                is_available: None,
+                missing_image_count: None,
             })
         })
         .map_err(|error| error.to_string())?;
 
     let mut items = Vec::new();
     for row in rows {
-        items.push(row.map_err(|error| error.to_string())?);
+        items.push(decorate_mount(
+            &conn,
+            row.map_err(|error| error.to_string())?,
+        )?);
     }
     Ok(items)
 }
@@ -841,6 +1062,11 @@ fn scan_image_mount(app: AppHandle, mount_id: String) -> Result<ScanProgress, St
 #[tauri::command]
 fn list_images(app: AppHandle, filter: ImageQueryFilter) -> Result<Vec<ImageRecord>, String> {
     let conn = open_db(&app)?;
+    let available_mount_ids: HashSet<String> = list_image_mounts(app.clone())?
+        .into_iter()
+        .filter(|mount| mount.is_available != Some(false))
+        .map(|mount| mount.id)
+        .collect();
     let mut statement = conn
     .prepare(
       "SELECT id, mount_id, relative_path, file_name, folder_path, absolute_path, favorite, added_at, updated_at, is_missing, last_seen_at, width, height
@@ -855,6 +1081,9 @@ fn list_images(app: AppHandle, filter: ImageQueryFilter) -> Result<Vec<ImageReco
     for row in rows {
         let image = hydrate_image_record(&conn, row.map_err(|error| error.to_string())?)?;
         if image.is_missing == Some(true) {
+            continue;
+        }
+        if !available_mount_ids.contains(&image.mount_id) {
             continue;
         }
         if let Some(mount_id) = &filter.mount_id {
@@ -1418,7 +1647,7 @@ fn set_image_app_settings(
 }
 
 #[tauri::command]
-fn export_legacy_image_data(app: AppHandle) -> Result<LegacyImageData, String> {
+fn export_legacy_image_data(app: AppHandle) -> Result<LegacyImageExportEnvelope, String> {
     let mounts = list_image_mounts(app.clone())?;
     let images = list_images(
         app.clone(),
@@ -1433,22 +1662,45 @@ fn export_legacy_image_data(app: AppHandle) -> Result<LegacyImageData, String> {
     let tags = list_image_tags(app.clone())?;
     let categories = list_image_tag_categories(app.clone())?;
     let settings = get_image_app_settings(app)?;
-    Ok(LegacyImageData {
-        mounts,
-        images,
-        tags,
-        categories,
-        recent_folders: settings.image_import_recent_folders,
-        recent_tag_ids: settings.image_import_recent_tag_ids,
-        image_tag_readings_backfill_done_at: settings.image_tag_readings_backfill_done_at,
+    Ok(LegacyImageExportEnvelope {
+        app: "atelier".to_string(),
+        kind: "legacy-image-data".to_string(),
+        schema_version: 1,
+        exported_at: chrono::Utc::now().to_rfc3339(),
+        data: LegacyImageData {
+            mounts,
+            images,
+            tags,
+            categories,
+            recent_folders: settings.image_import_recent_folders,
+            recent_tag_ids: settings.image_import_recent_tag_ids,
+            image_tag_readings_backfill_done_at: settings.image_tag_readings_backfill_done_at,
+        },
     })
 }
 
 #[tauri::command]
-fn import_legacy_image_data(app: AppHandle, payload: String) -> Result<(), String> {
-    let data: LegacyImageData =
+fn import_legacy_image_data(
+    app: AppHandle,
+    payload: String,
+) -> Result<LegacyImageImportResult, String> {
+    let envelope: LegacyImageExportEnvelope =
         serde_json::from_str(&payload).map_err(|error| error.to_string())?;
+    if envelope.app != "atelier" || envelope.kind != "legacy-image-data" {
+        return Err("Unsupported legacy image export format.".to_string());
+    }
+    if envelope.schema_version != 1 {
+        return Err(format!(
+            "Unsupported legacy image schemaVersion: {}",
+            envelope.schema_version
+        ));
+    }
+
+    let backup_path = backup_current_database(&app)?;
+    let data = envelope.data;
     let conn = open_db(&app)?;
+    let imported_mounts = data.mounts.len() as i64;
+    let imported_tags = data.tags.len() as i64;
     for category in data.categories {
         conn
       .execute(
@@ -1470,41 +1722,96 @@ fn import_legacy_image_data(app: AppHandle, payload: String) -> Result<(), Strin
       .execute(
         "INSERT OR REPLACE INTO image_tags (id, name, normalized_name, search_readings_json, category_id, is_auto, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![tag.id, tag.name, tag.normalized_name, serde_json::to_string(&tag.search_readings).map_err(|error| error.to_string())?, tag.category_id, bool_to_i64(tag.is_auto), tag.created_at],
-      )
-      .map_err(|error| error.to_string())?;
+        )
+        .map_err(|error| error.to_string())?;
     }
+    let mut imported_images = 0_i64;
     for image in data.images {
+        let resolved_image_id = resolve_import_image_id(&conn, &image)?;
+        let absolute_path = if image.absolute_path.trim().is_empty() {
+            "__missing__/unresolved".to_string()
+        } else {
+            image.absolute_path.clone()
+        };
         conn
-      .execute(
-        "INSERT OR REPLACE INTO images (id, mount_id, relative_path, file_name, folder_path, absolute_path, favorite, added_at, updated_at, is_missing, last_seen_at, width, height)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-        params![image.id, image.mount_id, image.relative_path, image.file_name, image.folder_path, image.absolute_path, bool_to_i64(image.favorite), image.added_at, image.updated_at, bool_to_i64(image.is_missing.unwrap_or(false)), image.last_seen_at, image.width, image.height],
-      )
-      .map_err(|error| error.to_string())?;
-        for tag_id in image.tags {
-            let source = if image.auto_tag_ids.contains(&tag_id) {
-                "auto"
-            } else {
-                "manual"
-            };
+        .execute(
+            "INSERT INTO images (id, mount_id, relative_path, file_name, folder_path, absolute_path, favorite, added_at, updated_at, is_missing, last_seen_at, width, height)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+             ON CONFLICT(id) DO UPDATE SET
+               mount_id = excluded.mount_id,
+               relative_path = excluded.relative_path,
+               file_name = excluded.file_name,
+               folder_path = excluded.folder_path,
+               absolute_path = excluded.absolute_path,
+               favorite = excluded.favorite,
+               added_at = excluded.added_at,
+               updated_at = excluded.updated_at,
+               is_missing = excluded.is_missing,
+               last_seen_at = excluded.last_seen_at,
+               width = excluded.width,
+               height = excluded.height",
+            params![
+                resolved_image_id,
+                image.mount_id,
+                image.relative_path,
+                image.file_name,
+                image.folder_path,
+                absolute_path,
+                bool_to_i64(image.favorite),
+                image.added_at,
+                image.updated_at,
+                bool_to_i64(image.is_missing.unwrap_or(false)),
+                image.last_seen_at,
+                image.width,
+                image.height
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+        conn.execute(
+            "DELETE FROM image_tag_links WHERE image_id = ?1",
+            params![resolved_image_id.clone()],
+        )
+        .map_err(|error| error.to_string())?;
+        for (tag_id, source) in normalized_import_links(&image) {
             conn
         .execute(
           "INSERT OR IGNORE INTO image_tag_links (image_id, tag_id, source, linked_at) VALUES (?1, ?2, ?3, ?4)",
-          params![image.id, tag_id, source, now_ms()],
+          params![resolved_image_id, tag_id, source, now_ms()],
         )
         .map_err(|error| error.to_string())?;
         }
+        imported_images += 1;
     }
 
+    let existing_settings = fetch_settings(&conn)?;
     store_settings(
         &conn,
         &ImageAppSettings {
-            image_import_recent_folders: data.recent_folders,
-            image_import_recent_tag_ids: data.recent_tag_ids,
-            image_tag_readings_backfill_done_at: data.image_tag_readings_backfill_done_at,
+            image_import_recent_folders: merge_recent_folders(
+                existing_settings.image_import_recent_folders,
+                data.recent_folders,
+            ),
+            image_import_recent_tag_ids: merge_recent_tag_ids(
+                existing_settings.image_import_recent_tag_ids,
+                data.recent_tag_ids,
+            ),
+            image_tag_readings_backfill_done_at: match (
+                existing_settings.image_tag_readings_backfill_done_at,
+                data.image_tag_readings_backfill_done_at,
+            ) {
+                (Some(existing), Some(imported)) => Some(existing.max(imported)),
+                (Some(existing), None) => Some(existing),
+                (None, Some(imported)) => Some(imported),
+                (None, None) => None,
+            },
         },
     )?;
-    Ok(())
+    Ok(LegacyImageImportResult {
+        backup_path,
+        imported_mounts,
+        imported_images,
+        imported_tags,
+    })
 }
 
 pub fn run() {
@@ -1513,6 +1820,7 @@ pub fn run() {
             pick_image_mount,
             create_image_mount,
             remove_image_mount,
+            relink_image_mount,
             list_image_mounts,
             scan_image_mount,
             list_images,

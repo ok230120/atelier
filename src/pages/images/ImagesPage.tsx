@@ -213,7 +213,11 @@ export default function ImagesPage() {
   }, [list, safePage]);
 
   const selectedMount = mounts.find((mount) => mount.id === list.mountId);
-  const fallbackMountId = !list.mountId && mounts.length === 1 ? mounts[0].id : list.mountId;
+  const visibleMounts = useMemo(
+    () => mounts.filter((mount) => mount.isAvailable !== false),
+    [mounts],
+  );
+  const fallbackMountId = !list.mountId && visibleMounts.length === 1 ? visibleMounts[0].id : list.mountId;
   const activeTagObjects = allTags.filter((tag) => list.selectedTagIds.includes(tag.id));
 
   const breadcrumbs = useMemo(() => {
@@ -469,9 +473,15 @@ export default function ImagesPage() {
         </button>
       </div>
 
-      {!list.mountId && mounts.length > 0 && (
+      {selectedMount?.isAvailable === false && (
+        <div className="mb-4 rounded-2xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm text-orange-100">
+          このフォルダは現在見つかりません。画像管理からフォルダを再指定してください。
+        </div>
+      )}
+
+      {!list.mountId && visibleMounts.length > 0 && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {mounts.map((mount) => (
+          {visibleMounts.map((mount) => (
             <button
               key={mount.id}
               onClick={() => list.navigateTo(mount.id, '')}
@@ -507,7 +517,7 @@ export default function ImagesPage() {
         </div>
       )}
 
-      {allImages.length === 0 && mounts.length === 0 && (
+      {allImages.length === 0 && visibleMounts.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-4 py-24">
           <RiGridLine size={48} className="text-text-dim" />
           <p className="font-heading text-xl text-text-muted">画像がまだありません</p>
@@ -523,7 +533,7 @@ export default function ImagesPage() {
         </div>
       )}
 
-      {allImages.length === 0 && mounts.length > 0 && (
+      {allImages.length === 0 && visibleMounts.length > 0 && (
         <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/60 py-20 text-center">
           <RiGridLine size={40} className="text-text-dim" />
           <p className="font-heading text-lg text-text-muted">一致する画像がありません</p>

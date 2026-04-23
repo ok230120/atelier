@@ -23,6 +23,7 @@ import classNames from 'classnames';
 import { db } from '../../db/client';
 import { exportDatabase, importDatabase } from '../../services/exportImport';
 import { fileSystem } from '../../services/fileSystem';
+import { exportLegacyImageData } from '../../services/legacyImageExport';
 import type { AppSettings, Video } from '../../types/domain';
 
 // タグ正規化ヘルパー
@@ -215,6 +216,26 @@ const SettingsPage: React.FC = () => {
     } catch (err) {
       console.error(err);
       alert('エクスポートに失敗しました。詳細はコンソールを確認してください。');
+    } finally {
+      setIsProcessingIO(false);
+    }
+  };
+
+  const handleLegacyImageExport = async () => {
+    if (
+      !window.confirm(
+        '画像フォルダ・タグ・カテゴリを Tauri 版へ移すための救出 JSON を書き出します。画像本体は含まれません。続けますか？',
+      )
+    ) {
+      return;
+    }
+
+    setIsProcessingIO(true);
+    try {
+      await exportLegacyImageData();
+    } catch (err) {
+      console.error(err);
+      alert('画像データの書き出しに失敗しました。');
     } finally {
       setIsProcessingIO(false);
     }
@@ -461,6 +482,21 @@ const SettingsPage: React.FC = () => {
                   OR（いずれか）
                 </button>
               </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-border/60 bg-bg-surface/40 p-4">
+              <h4 className="text-sm font-medium text-text-muted uppercase tracking-wider">画像救出</h4>
+              <p className="text-sm text-text-dim">
+                画像フォルダ、タグ、カテゴリ、最近使ったフォルダ/タグを Tauri 版へ移すための救出 JSON を書き出します。画像本体は含みません。
+              </p>
+              <button
+                onClick={handleLegacyImageExport}
+                disabled={isProcessingIO}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-bg-surface border border-border rounded-lg hover:border-accent hover:text-accent transition-colors text-sm"
+              >
+                {isProcessingIO ? <RiLoader4Line className="animate-spin" /> : <RiDownloadCloud2Line />}
+                画像データを書き出す
+              </button>
             </div>
 
             <div className="h-px bg-border/50 w-full" />

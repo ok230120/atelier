@@ -167,6 +167,76 @@ export type ImageMount = {
   addedAt: number;
   lastScannedAt?: number;
   imageCount?: number;
+  isAvailable?: boolean;
+  missingImageCount?: number;
+};
+
+export type LegacyImageMountPayload = {
+  id: string;
+  name: string;
+  basePath: string;
+  includeSubdirs: boolean;
+  addedAt: number;
+  lastScannedAt?: number;
+  imageCount?: number;
+};
+
+export type LegacyImageRecordPayload = {
+  id: string;
+  fileName: string;
+  relativePath: string;
+  folderPath: string;
+  mountId: string;
+  absolutePath?: string;
+  tags: string[];
+  autoTagIds: string[];
+  favorite: boolean;
+  addedAt: number;
+  updatedAt: number;
+  isMissing?: boolean;
+  lastSeenAt?: number;
+  width?: number;
+  height?: number;
+};
+
+export type LegacyImageTagPayload = {
+  id: string;
+  name: string;
+  normalizedName: string;
+  searchReadings: string[];
+  categoryId: string;
+  isAuto: boolean;
+  createdAt: number;
+  usageCount?: number;
+};
+
+export type LegacyImageExportPayload = {
+  mounts: LegacyImageMountPayload[];
+  images: LegacyImageRecordPayload[];
+  tags: LegacyImageTagPayload[];
+  categories: ImageTagCategoryRecord[];
+  recentFolders: Array<{
+    mountId: string;
+    folderPath: string;
+    usedAt: number;
+  }>;
+  recentTagIds: string[];
+  imageTagReadingsBackfillDoneAt?: number;
+};
+
+export type LegacyImageExportData = {
+  app: 'atelier';
+  kind: 'legacy-image-data';
+  schemaVersion: number;
+  exportedAt: string;
+  data: LegacyImageExportPayload;
+};
+
+export type LegacyImageImportResult = {
+  backupPath: string;
+  importedMounts: number;
+  importedImages: number;
+  importedTags: number;
 };
 
 export type ImageImportSourceKind = 'picker-handle' | 'dropped-file' | 'clipboard-file';

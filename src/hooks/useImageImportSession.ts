@@ -83,13 +83,16 @@ export function useImageImportSession() {
       listImageTags(),
       getImageAppSettings(),
     ]);
+    const availableMounts = nextMounts.filter((mount) => mount.isAvailable !== false);
 
-    setMounts(nextMounts);
+    setMounts(availableMounts);
     setCategories(nextCategories);
     setAllTags(nextTags);
     setRecentFolders(settings.imageImportRecentFolders ?? []);
     setRecentTagIds(settings.imageImportRecentTagIds ?? []);
-    setSelectedMountId((prev) => prev || nextMounts[0]?.id || '');
+    setSelectedMountId((prev) =>
+      availableMounts.some((mount) => mount.id === prev) ? prev : availableMounts[0]?.id || '',
+    );
   };
 
   useEffect(() => {

@@ -21,7 +21,7 @@ type Props = {
 };
 
 function folderLabel(folderPath: string) {
-  return folderPath || 'atelier';
+  return folderPath || 'root';
 }
 
 export default function ImageImportDestinationPicker({
@@ -52,7 +52,7 @@ export default function ImageImportDestinationPicker({
 
   const breadcrumbs = useMemo(() => {
     const parts = selectedFolderPath ? selectedFolderPath.split('/') : [];
-    const items = [{ label: 'atelier', folderPath: '' }];
+    const items = [{ label: 'root', folderPath: '' }];
     parts.forEach((part, index) => {
       items.push({
         label: part,
@@ -78,7 +78,9 @@ export default function ImageImportDestinationPicker({
   return (
     <section className="rounded-2xl border border-border bg-bg-panel p-5">
       <h2 className="font-heading text-lg text-text-main">保存先</h2>
-      <p className="mt-1 text-sm text-text-dim">最近使った保存先を選ぶか、その場でフォルダを辿って決められます。</p>
+      <p className="mt-1 text-sm text-text-dim">
+        最近使った保存先を選ぶか、その場でフォルダを作って保存できます。
+      </p>
 
       {recentEntries.length > 0 && (
         <div className="mt-4">
@@ -138,11 +140,11 @@ export default function ImageImportDestinationPicker({
                   </div>
                 ))}
               </div>
-              <p className="mt-2 text-xs text-accent">この場所に保存: {folderLabel(selectedFolderPath)}</p>
+              <p className="mt-2 text-xs text-accent">この場所に保存します: {folderLabel(selectedFolderPath)}</p>
             </div>
 
             <div>
-              <p className="mb-2 text-xs text-text-dim">直下のフォルダ</p>
+              <p className="mb-2 text-xs text-text-dim">下位フォルダ</p>
               {childFolders.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-border px-3 py-4 text-sm text-text-dim">
                   ここにはまだ子フォルダがありません。
@@ -173,7 +175,7 @@ export default function ImageImportDestinationPicker({
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') void handleCreateFolder();
                   }}
-                  placeholder="現在の場所の配下に作成"
+                  placeholder="現在の場所の下に作成"
                   className="flex-1 rounded-xl border border-border bg-bg-surface px-3 py-2 text-sm text-text-main outline-none placeholder:text-text-dim"
                 />
                 <button

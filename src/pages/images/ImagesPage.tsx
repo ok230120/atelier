@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   RiAddLine,
   RiArrowRightSLine,
+  RiCheckLine,
   RiCheckboxMultipleLine,
   RiCloseLine,
   RiFolderLine,
@@ -17,6 +18,7 @@ import { useImageListUrlState } from '../../hooks/useImageListUrlState';
 import {
   addTagsToImages,
   getBulkRemovableTags,
+  getImageThumbnailUrl,
   getSubfolders,
   listImageMounts,
   listImageTags,
@@ -42,6 +44,19 @@ function ImageCard({
   onSelect: () => void;
   onOpen: () => void;
 }) {
+  const [thumbnail, setThumbnail] = useState<string | null>(image.thumbnail ?? null);
+
+  useEffect(() => {
+    let active = true;
+    void getImageThumbnailUrl(image.id).then((nextThumbnail) => {
+      if (!active) return;
+      setThumbnail(nextThumbnail);
+    });
+    return () => {
+      active = false;
+    };
+  }, [image.id, image.thumbnail]);
+
   return (
     <button
       type="button"
@@ -53,9 +68,9 @@ function ImageCard({
       }
     >
       <div className="aspect-square overflow-hidden bg-bg-surface">
-        {image.thumbnail ? (
+        {thumbnail ? (
           <img
-            src={image.thumbnail}
+            src={thumbnail}
             alt={image.fileName}
             className="h-full w-full object-cover"
             loading="lazy"
@@ -78,7 +93,7 @@ function ImageCard({
                 : 'flex h-5 w-5 items-center justify-center rounded-md border-2 border-white/60 bg-black/40'
             }
           >
-            {selected ? '✓' : null}
+            {selected ? <RiCheckLine size={12} /> : null}
           </div>
         </div>
       )}
@@ -103,7 +118,7 @@ function BulkActionBar({
 }) {
   return (
     <div className="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-2xl border border-border bg-bg-panel px-5 py-3 shadow-2xl">
-      <span className="text-sm text-text-muted">{count}枚 選択中</span>
+      <span className="text-sm text-text-muted">{count} 件を選択中</span>
       <div className="h-5 w-px bg-border" />
       <button
         onClick={onAddTags}
@@ -116,7 +131,7 @@ function BulkActionBar({
         onClick={onRemoveTags}
         className="text-sm text-text-muted transition-colors hover:text-red-400"
       >
-        タグを削除
+        タグを外す
       </button>
       <button
         onClick={onClear}
@@ -256,7 +271,7 @@ export default function ImagesPage() {
     if (isRescanning) return;
 
     setIsRescanning(true);
-    setRescanMessage('画像一覧を更新中です');
+    setRescanMessage('画像ライブラリを再スキャン中です...');
     setFailedMountsSummary(null);
 
     try {
@@ -264,17 +279,17 @@ export default function ImagesPage() {
       await Promise.all([refreshMeta(), refreshImages(), refreshSubfolders()]);
 
       if (summary.failedMounts.length > 0) {
-        setFailedMountsSummary('一部のフォルダを再スキャンできませんでした');
+        setFailedMountsSummary('一部のフォルダで再スキャンに失敗しました。');
       }
 
       if (summary.scannedMountCount > 0) {
-        setRescanMessage('画像一覧を更新しました');
+        setRescanMessage('画像ライブラリを更新しました。');
       } else {
-        setRescanMessage('再スキャンできるフォルダがありません');
+        setRescanMessage('再スキャンできるフォルダがありません。');
       }
     } catch {
       setRescanMessage(null);
-      setFailedMountsSummary('再スキャンに失敗しました');
+      setFailedMountsSummary('再スキャンに失敗しました。');
     } finally {
       setIsRescanning(false);
     }
@@ -285,15 +300,15 @@ export default function ImagesPage() {
       if (list.folder) {
         return list.folderDepth === 'tree'
           ? '現在のフォルダ配下を表示中'
-          : '現在のフォルダ直下を表示中';
+          : '現在のフォルダのみ表示中';
       }
       if (selectedMount) {
         return list.folderDepth === 'tree'
           ? `${selectedMount.name} 配下を表示中`
-          : `${selectedMount.name} 直下を表示中`;
+          : `${selectedMount.name} の直下を表示中`;
       }
     }
-    return '全画像を表示中';
+    return 'すべての画像を表示中';
   })();
 
   return (
@@ -328,7 +343,7 @@ export default function ImagesPage() {
           className="ml-auto flex items-center gap-1.5 text-xs text-text-dim transition-colors hover:text-text-muted"
         >
           <RiAddLine size={14} />
-          追加
+          取り込み
         </button>
 
         <button
@@ -396,7 +411,7 @@ export default function ImagesPage() {
                         : 'rounded-full px-3 py-1 text-xs text-text-dim transition-colors hover:text-text-muted'
                     }
                   >
-                    {scope === 'all' ? 'すべて' : 'このフォルダ'}
+                    {scope === 'all' ? 'すべて' : '現在の場所'}
                   </button>
                 ))}
               </div>
@@ -404,8 +419,8 @@ export default function ImagesPage() {
               {list.scope === 'current' && (
                 <div className="flex items-center rounded-full border border-border bg-bg-surface p-0.5">
                   {([
-                    { key: 'direct', label: 'このフォルダのみ' },
-                    { key: 'tree', label: '配下階層も表示' },
+                    { key: 'direct', label: '直下のみ' },
+                    { key: 'tree', label: '配下すべて' },
                   ] as const).map((option) => (
                     <button
                       key={option.key}
@@ -429,7 +444,7 @@ export default function ImagesPage() {
       <div className="mb-4 flex items-center justify-between">
         <div>
           <p className="text-sm text-text-dim">
-            {allImages.length.toLocaleString()}枚
+            {allImages.length.toLocaleString()} 件
             {list.selectedTagIds.length > 0 ? ' (絞り込み中)' : ''}
           </p>
           <p className="mt-1 text-xs text-text-dim">{resultSummary}</p>
@@ -513,7 +528,7 @@ export default function ImagesPage() {
           <RiGridLine size={40} className="text-text-dim" />
           <p className="font-heading text-lg text-text-muted">一致する画像がありません</p>
           <p className="text-sm text-text-dim">
-            タグやフォルダ条件を見直すと見つけやすくなります
+            タグやフォルダ条件を見直すと見つかることがあります
           </p>
         </div>
       )}

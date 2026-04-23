@@ -7,7 +7,7 @@ import ImageImportDropzone from './components/ImageImportDropzone';
 import ImageImportTagPicker from './components/ImageImportTagPicker';
 
 function sourceLabel(sourceKind: 'picker-handle' | 'dropped-file' | 'clipboard-file') {
-  return sourceKind === 'picker-handle' ? '移動' : '新規保存';
+  return sourceKind === 'clipboard-file' ? '貼り付け' : 'ファイル';
 }
 
 export default function ImageImportPage() {
@@ -42,7 +42,7 @@ export default function ImageImportPage() {
         </button>
         <div>
           <p className="text-xs uppercase tracking-[0.24em] text-text-dim">Images / Import</p>
-          <h1 className="font-heading text-2xl text-text-main">画像を追加</h1>
+          <h1 className="font-heading text-2xl text-text-main">画像を取り込む</h1>
         </div>
         <button
           type="button"
@@ -65,9 +65,9 @@ export default function ImageImportPage() {
           <section className="rounded-2xl border border-border bg-bg-panel p-5">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <h2 className="font-heading text-lg text-text-main">追加キュー</h2>
+                <h2 className="font-heading text-lg text-text-main">取り込みキュー</h2>
                 <p className="mt-1 text-sm text-text-dim">
-                  {session.queuedItems.length} 件の画像が追加待ちです。
+                  {session.queuedItems.length} 件の画像が取り込み待ちです。
                 </p>
               </div>
               {session.queuedItems.length > 0 && (
@@ -76,7 +76,7 @@ export default function ImageImportPage() {
                   onClick={session.clearQueue}
                   className="text-sm text-text-dim transition-colors hover:text-text-main"
                 >
-                  すべて外す
+                  すべて消す
                 </button>
               )}
             </div>
@@ -85,7 +85,7 @@ export default function ImageImportPage() {
               <div className="rounded-2xl border border-dashed border-border px-4 py-10 text-center">
                 <RiImageAddLine size={36} className="mx-auto text-text-dim" />
                 <p className="mt-3 text-sm text-text-dim">
-                  画像を追加すると、ここにファイル名が並びます。
+                  画像を取り込むと、ここにファイル一覧が並びます。
                 </p>
               </div>
             ) : (
@@ -118,9 +118,9 @@ export default function ImageImportPage() {
           <section className="rounded-2xl border border-border bg-bg-panel p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="font-heading text-lg text-text-main">追加を実行</h2>
+                <h2 className="font-heading text-lg text-text-main">取り込みを実行</h2>
                 <p className="mt-1 text-sm text-text-dim">
-                  保存先とタグが決まったら、そのまま追加できます。
+                  保存先とタグが決まったら、そのまま取り込めます。
                 </p>
               </div>
               <button
@@ -129,7 +129,7 @@ export default function ImageImportPage() {
                 onClick={() => void session.submitImport()}
                 className="rounded-xl bg-accent px-5 py-2.5 text-sm text-white transition-colors hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {session.isSaving ? '追加中...' : `${session.queuedItems.length || 0}件を追加する`}
+                {session.isSaving ? '取り込み中...' : `${session.queuedItems.length || 0}件を取り込む`}
               </button>
             </div>
 
@@ -142,7 +142,7 @@ export default function ImageImportPage() {
             {session.isSaving && (
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between text-sm text-text-dim">
-                  <span>追加中</span>
+                  <span>取り込み中</span>
                   <span>
                     {session.progress.done} / {session.progress.total}
                   </span>

@@ -108,7 +108,7 @@ export const DEFAULT_IMAGE_TAG_CATEGORY_DEFINITIONS = [
   { id: 'image-category:hair-color', name: '髪色', protected: false },
   { id: 'image-category:hair-style', name: '髪型', protected: false },
   { id: 'image-category:clothing', name: '服装', protected: false },
-  { id: 'image-category:legs', name: '脚部', protected: false },
+  { id: 'image-category:legs', name: '脚', protected: false },
   { id: 'image-category:expression', name: '表情', protected: false },
   { id: 'image-category:attribute', name: '属性', protected: false },
   { id: 'image-category:composition', name: '構図', protected: false },
@@ -133,6 +133,7 @@ export type ImageRecord = {
   relativePath: string;
   folderPath: string;
   mountId: string;
+  absolutePath?: string;
   fileHandle?: FileSystemFileHandle;
   thumbnail?: string;
   tags: string[];
@@ -160,6 +161,7 @@ export type ImageTagRecord = {
 export type ImageMount = {
   id: string;
   name: string;
+  basePath?: string;
   dirHandle?: FileSystemDirectoryHandle;
   includeSubdirs: boolean;
   addedAt: number;
@@ -176,6 +178,7 @@ export type ImageImportItem = {
   mimeType: string;
   file?: File;
   fileHandle?: FileSystemFileHandle;
+  sourcePath?: string;
 };
 
 export type ImageImportFailureReason =

@@ -1,7 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { db } from '../db/client';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-  AppSettings,
   ImageRecord,
   ImageTagCategoryRecord,
   ImageTagRecord,
@@ -9,17 +7,18 @@ import type {
 import {
   addTagsToImages,
   backfillImageTagReadings,
+  getImageAppSettings,
   getImageManualTagIds,
   getImageTaggingMeta,
   getOrCreateImageTag,
   listImageTagCategories,
   listImageTags,
+  queryImages,
   removeTagsFromImages,
+  setImageAppSettings,
   sortImageTagsByUsage,
   type ImageTaggingMeta,
 } from '../services/imageService';
-
-const TAGGING_COMPLETED_HISTORY_LIMIT = 20;
 
 export type ImageTaggingCompletedHistoryItem = {
   imageId: string;
@@ -30,63 +29,8 @@ export type ImageTaggingCompletedHistoryItem = {
   manualTags: ImageTagRecord[];
 };
 
-const DEFAULT_APP_SETTINGS: AppSettings = {
-  id: 'app' as const,
-  schemaVersion: 1,
-  pinnedTags: [],
-  tagSort: 'popular' as const,
-  filterMode: 'AND' as const,
-  thumbStore: 'idb' as const,
-};
-
 function moveTagToRecent(tagId: string, tagIds: string[]) {
   return [tagId, ...tagIds.filter((current) => current !== tagId)].slice(0, 12);
-}
-
-async function getAppSettings(): Promise<AppSettings> {
-  return (await db.settings.get('app')) ?? DEFAULT_APP_SETTINGS;
-}
-
-async function updateRecentImageTags(tagId: string) {
-  const settings = await getAppSettings();
-
-  await db.settings.put({
-    ...settings,
-    imageImportRecentTagIds: moveTagToRecent(tagId, settings.imageImportRecentTagIds ?? []),
-  });
-}
-
-async function dismissImageFromTagging(imageId: string) {
-  const settings = await getAppSettings();
-  const nextDismissedIds = Array.from(
-    new Set([...(settings.taggingDismissedImageIds ?? []), imageId]),
-  );
-  const nextCompletedHistory = [
-    { imageId, completedAt: Date.now() },
-    ...(settings.taggingCompletedHistory ?? []).filter((item) => item.imageId !== imageId),
-  ].slice(0, TAGGING_COMPLETED_HISTORY_LIMIT);
-
-  await db.settings.put({
-    ...settings,
-    taggingDismissedImageIds: nextDismissedIds,
-    taggingPendingImageIds: (settings.taggingPendingImageIds ?? []).filter(
-      (currentId) => currentId !== imageId,
-    ),
-    taggingCompletedHistory: nextCompletedHistory,
-  });
-}
-
-async function setImageTaggingPending(imageId: string, shouldKeepPending: boolean) {
-  const settings = await getAppSettings();
-  const pendingIds = new Set(settings.taggingPendingImageIds ?? []);
-
-  if (shouldKeepPending) pendingIds.add(imageId);
-  else pendingIds.delete(imageId);
-
-  await db.settings.put({
-    ...settings,
-    taggingPendingImageIds: Array.from(pendingIds),
-  });
 }
 
 export function useImageTaggingSession() {
@@ -100,6 +44,7 @@ export function useImageTaggingSession() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dismissedIdsRef = useRef<Set<string>>(new Set());
 
   const refreshQueue = useCallback(async () => {
     setLoading(true);
@@ -107,53 +52,21 @@ export function useImageTaggingSession() {
 
     try {
       const [images, nextCategories, tags, settings] = await Promise.all([
-        db.images.toArray(),
+        queryImages({ tagIds: [], scope: 'all' }),
         listImageTagCategories(),
         listImageTags(),
-        getAppSettings(),
+        getImageAppSettings(),
       ]);
-      const dismissedIds = new Set(settings.taggingDismissedImageIds ?? []);
-      const pendingIds = new Set(settings.taggingPendingImageIds ?? []);
+
       const visibleImages = images
-        .filter((image) => image.isMissing !== true)
-        .filter(
-          (image) =>
-            !dismissedIds.has(image.id) &&
-            (getImageManualTagIds(image).length === 0 || pendingIds.has(image.id)),
-        )
+        .filter((image) => !dismissedIdsRef.current.has(image.id))
+        .filter((image) => getImageManualTagIds(image).length === 0)
         .sort((a, b) => b.addedAt - a.addedAt);
 
       setQueue(visibleImages);
       setCategories(nextCategories);
       setAllTags(tags);
       setRecentTagIds(settings.imageImportRecentTagIds ?? []);
-      const tagMap = new Map(tags.map((tag) => [tag.id, tag]));
-      const imageMap = new Map(images.map((image) => [image.id, image]));
-      const historyItems = (settings.taggingCompletedHistory ?? [])
-        .map((item) => {
-          const image = imageMap.get(item.imageId);
-          if (!image) return null;
-
-          const autoTags = (image.autoTagIds ?? [])
-            .map((tagId) => tagMap.get(tagId) ?? null)
-            .filter((tag): tag is ImageTagRecord => Boolean(tag));
-          const manualTags = getImageManualTagIds(image)
-            .map((tagId) => tagMap.get(tagId) ?? null)
-            .filter((tag): tag is ImageTagRecord => Boolean(tag));
-
-          const historyItem: ImageTaggingCompletedHistoryItem = {
-            imageId: item.imageId,
-            fileName: image.fileName,
-            thumbnail: image.thumbnail,
-            completedAt: item.completedAt,
-            autoTags,
-            manualTags: sortImageTagsByUsage(manualTags),
-          };
-
-          return historyItem;
-        })
-        .filter((item): item is ImageTaggingCompletedHistoryItem => Boolean(item));
-      setCompletedHistory(historyItems);
       setSelectedImageId((prev) => {
         if (prev && visibleImages.some((image) => image.id === prev)) return prev;
         return visibleImages[0]?.id ?? null;
@@ -186,8 +99,6 @@ export function useImageTaggingSession() {
     };
   }, [selectedImageId]);
 
-  const visibleQueue = useMemo(() => queue, [queue]);
-
   const recentTags = useMemo(
     () =>
       recentTagIds
@@ -195,6 +106,15 @@ export function useImageTaggingSession() {
         .filter((tag): tag is ImageTagRecord => Boolean(tag)),
     [allTags, recentTagIds],
   );
+
+  const updateRecentImageTags = useCallback(async (tagId: string) => {
+    const settings = await getImageAppSettings();
+    const nextSettings = await setImageAppSettings({
+      ...settings,
+      imageImportRecentTagIds: moveTagToRecent(tagId, settings.imageImportRecentTagIds ?? []),
+    });
+    setRecentTagIds(nextSettings.imageImportRecentTagIds ?? []);
+  }, []);
 
   const selectImage = (imageId: string) => {
     setSelectedImageId(imageId);
@@ -208,15 +128,12 @@ export function useImageTaggingSession() {
     try {
       await addTagsToImages([detail.image.id], [tagId]);
       await updateRecentImageTags(tagId);
-      const [nextDetail, tags, settings] = await Promise.all([
+      const [nextDetail, tags] = await Promise.all([
         getImageTaggingMeta(detail.image.id),
         listImageTags(),
-        getAppSettings(),
       ]);
       setDetail(nextDetail);
       setAllTags(tags);
-      setRecentTagIds(settings.imageImportRecentTagIds ?? []);
-      await setImageTaggingPending(detail.image.id, true);
       await refreshQueue();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Failed to add the tag.');
@@ -238,10 +155,6 @@ export function useImageTaggingSession() {
       ]);
       setDetail(nextDetail);
       setAllTags(tags);
-      await setImageTaggingPending(
-        detail.image.id,
-        Boolean(nextDetail && getImageManualTagIds(nextDetail.image).length > 0),
-      );
       await refreshQueue();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Failed to remove the tag.');
@@ -259,15 +172,12 @@ export function useImageTaggingSession() {
       const tag = await getOrCreateImageTag(name, categoryId);
       await addTagsToImages([detail.image.id], [tag.id]);
       await updateRecentImageTags(tag.id);
-      const [nextDetail, tags, settings] = await Promise.all([
+      const [nextDetail, tags] = await Promise.all([
         getImageTaggingMeta(detail.image.id),
         listImageTags(),
-        getAppSettings(),
       ]);
       setDetail(nextDetail);
       setAllTags(tags);
-      setRecentTagIds(settings.imageImportRecentTagIds ?? []);
-      await setImageTaggingPending(detail.image.id, true);
       await refreshQueue();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Failed to create and add the tag.');
@@ -282,7 +192,18 @@ export function useImageTaggingSession() {
     setError(null);
 
     try {
-      await dismissImageFromTagging(detail.image.id);
+      dismissedIdsRef.current.add(detail.image.id);
+      setCompletedHistory((prev) => [
+        {
+          imageId: detail.image.id,
+          fileName: detail.image.fileName,
+          thumbnail: detail.image.thumbnail,
+          completedAt: Date.now(),
+          autoTags: detail.autoTags,
+          manualTags: sortImageTagsByUsage(detail.manualTags),
+        },
+        ...prev.filter((item) => item.imageId !== detail.image.id),
+      ].slice(0, 20));
       await refreshQueue();
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Failed to move to the next image.');
@@ -295,7 +216,7 @@ export function useImageTaggingSession() {
     loading,
     busy,
     error,
-    queue: visibleQueue,
+    queue,
     categories,
     allTags,
     selectedImageId,

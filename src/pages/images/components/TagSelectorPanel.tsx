@@ -98,7 +98,7 @@ export default function TagSelectorPanel({
       >
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h3 className="font-heading text-lg text-text-main">
-            {title ?? (mode === 'add' ? 'タグを追加' : 'タグを削除')}
+            {title ?? (mode === 'add' ? 'タグを追加' : 'タグを外す')}
           </h3>
           <button onClick={onClose} className="text-text-dim transition-colors hover:text-text-main">
             <RiCloseLine size={22} />
@@ -125,7 +125,7 @@ export default function TagSelectorPanel({
           <div className="mx-5 mt-4 flex items-center gap-2 rounded-xl border border-accent/30 bg-accent/10 px-3 py-2">
             <RiAddLine className="text-accent" size={16} />
             <span className="flex-1 text-sm text-text-muted">
-              「<span className="text-accent">{query.trim()}</span>」を新規タグとして追加
+              <span className="text-accent">{query.trim()}</span> を新規タグとして追加
             </span>
             <select
               value={newTagCategoryId}

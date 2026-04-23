@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
+  RiArrowDownLine,
   RiArrowLeftLine,
   RiArrowUpLine,
-  RiArrowDownLine,
-  RiDeleteBinLine,
-  RiEditLine,
   RiCheckLine,
   RiCloseLine,
-  RiSearchLine,
+  RiDeleteBinLine,
+  RiEditLine,
   RiGitMergeLine,
+  RiSearchLine,
 } from 'react-icons/ri';
 import type { ImageTagCategoryRecord, ImageTagRecord } from '../../types/domain';
 import {
@@ -86,7 +86,7 @@ export default function ImageTagsPage() {
       await refresh();
       if (successMessage) setMessage(successMessage);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : '処理に失敗しました。');
+      setMessage(error instanceof Error ? error.message : '操作に失敗しました。');
     } finally {
       setBusy(false);
     }
@@ -111,7 +111,7 @@ export default function ImageTagsPage() {
   const handleDeleteCategory = async (category: ImageTagCategoryRecord) => {
     if (
       !window.confirm(
-        `カテゴリ「${category.name}」を削除します。所属する手動タグは「その他」へ移動します。`,
+        `カテゴリ「${category.name}」を削除しますか。所属するタグは「その他」へ移動します。`,
       )
     ) {
       return;
@@ -128,8 +128,8 @@ export default function ImageTagsPage() {
   const handleDeleteTag = async (tag: ImageTagRecord) => {
     const confirmMessage =
       tag.usageCount > 0
-        ? `タグ「${tag.name}」を全画像から外して削除します。続けますか？`
-        : `タグ「${tag.name}」を削除しますか？`;
+        ? `タグ「${tag.name}」を全画像から外して削除しますか。`
+        : `タグ「${tag.name}」を削除しますか。`;
     if (!window.confirm(confirmMessage)) return;
 
     await runAction(
@@ -167,7 +167,9 @@ export default function ImageTagsPage() {
         <section className="rounded-2xl border border-border bg-bg-panel p-5">
           <div className="mb-4">
             <h2 className="font-heading text-lg text-text-main">カテゴリ</h2>
-            <p className="mt-1 text-sm text-text-dim">追加・並び替え・名前変更・削除ができます。</p>
+            <p className="mt-1 text-sm text-text-dim">
+              追加、並び替え、名前変更、削除ができます。
+            </p>
           </div>
 
           <div className="mb-4 flex gap-2">
@@ -293,7 +295,7 @@ export default function ImageTagsPage() {
             <div className="min-w-0 flex-1">
               <h2 className="font-heading text-lg text-text-main">タグ</h2>
               <p className="mt-1 text-sm text-text-dim">
-                手動タグを管理します。自動タグは再スキャンで再生成されるため、名前変更や削除はできませんが、カテゴリだけ変更できます。
+                タグ名の編集、カテゴリ移動、マージ、削除ができます。自動タグは再スキャンで再生成されるため、名前変更と削除はできません。
               </p>
             </div>
             <button
@@ -301,7 +303,7 @@ export default function ImageTagsPage() {
               onClick={() => setShowAutoTags((prev) => !prev)}
               className="rounded-xl border border-border bg-bg-surface px-3 py-2 text-xs text-text-muted transition-colors hover:text-text-main"
             >
-              {showAutoTags ? '自動タグを隠す' : '自動タグも表示'}
+              {showAutoTags ? '自動タグを隠す' : '自動タグを表示'}
             </button>
           </div>
 

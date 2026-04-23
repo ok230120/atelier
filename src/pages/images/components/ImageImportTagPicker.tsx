@@ -73,7 +73,9 @@ export default function ImageImportTagPicker({
   return (
     <section className="rounded-2xl border border-border bg-bg-panel p-5">
       <h2 className="font-heading text-lg text-text-main">タグ</h2>
-      <p className="mt-1 text-sm text-text-dim">選んだタグは、追加する画像すべてにまとめて付きます。</p>
+      <p className="mt-1 text-sm text-text-dim">
+        選んだタグは、取り込む画像すべてにまとめて付与します。
+      </p>
 
       {selectedTags.length > 0 && (
         <div className="mt-4 flex flex-wrap gap-2">

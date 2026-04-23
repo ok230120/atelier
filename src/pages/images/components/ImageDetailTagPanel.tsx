@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RiAddLine, RiCloseLine, RiSearchLine } from 'react-icons/ri';
-import { db } from '../../../db/client';
 import type { AppSettings, ImageTagCategoryRecord, ImageTagRecord } from '../../../types/domain';
 import {
   backfillImageTagReadings,
+  getImageAppSettings,
   getOrCreateImageTag,
   listImageTagCategories,
   listImageTags,
   matchesImageTagSearch,
   normalizeImageTagName,
+  setImageAppSettings,
 } from '../../../services/imageService';
 
 type Props = {
@@ -45,7 +46,7 @@ export default function ImageDetailTagPanel({ currentTagIds, onSelect }: Props) 
       const [nextCategories, nextTags, settings] = await Promise.all([
         listImageTagCategories(),
         listImageTags(),
-        db.settings.get('app'),
+        getImageAppSettings(),
       ]);
       if (cancelled) return;
 
@@ -104,9 +105,9 @@ export default function ImageDetailTagPanel({ currentTagIds, onSelect }: Props) 
   }, [activeCategoryId, categories, isSearching]);
 
   const updateRecentTags = async (tagId: string) => {
-    const settings = (await db.settings.get('app')) ?? DEFAULT_APP_SETTINGS;
+    const settings = (await getImageAppSettings()) ?? DEFAULT_APP_SETTINGS;
     const nextRecentTagIds = moveTagToRecent(tagId, settings.imageImportRecentTagIds ?? []);
-    await db.settings.put({
+    await setImageAppSettings({
       ...settings,
       imageImportRecentTagIds: nextRecentTagIds,
     });
@@ -221,7 +222,7 @@ export default function ImageDetailTagPanel({ currentTagIds, onSelect }: Props) 
         )}
 
         <div className="mt-4 rounded-2xl border border-border/60 bg-bg-surface/45 p-3">
-          <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-text-dim">カテゴリ</p>
+          <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-text-dim">Category</p>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -254,7 +255,7 @@ export default function ImageDetailTagPanel({ currentTagIds, onSelect }: Props) 
         <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-3">
           <div className="mb-3 flex items-end justify-between gap-3">
             <p className="text-sm font-medium text-text-main">{activeCategoryLabel}</p>
-            <p className="text-[11px] text-text-dim">{filteredTags.length}件</p>
+            <p className="text-[11px] text-text-dim">{filteredTags.length} 件</p>
           </div>
 
           <div className="flex flex-wrap gap-1.5">

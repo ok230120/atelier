@@ -49,7 +49,6 @@ export default function ImageTaggingEditor({
 
   useEffect(() => {
     let active = true;
-    let objectUrl: string | null = null;
 
     if (!detail) {
       setImageUrl(null);
@@ -57,18 +56,12 @@ export default function ImageTaggingEditor({
     }
 
     void getImageFileUrl(detail.image).then((url) => {
-      if (!active) {
-        if (url) URL.revokeObjectURL(url);
-        return;
-      }
-
-      objectUrl = url;
+      if (!active) return;
       setImageUrl(url);
     });
 
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [detail]);
 
@@ -104,7 +97,7 @@ export default function ImageTaggingEditor({
     <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-3">
       <div className="mb-3 flex items-end justify-between gap-3">
         <p className="text-sm font-medium text-text-main">{activeCategoryLabel}</p>
-        <p className="text-[11px] text-text-dim">{filteredTags.length}件</p>
+        <p className="text-[11px] text-text-dim">{filteredTags.length} 件</p>
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -138,9 +131,9 @@ export default function ImageTaggingEditor({
   if (!detail) {
     return (
       <section className="flex h-full min-h-0 flex-col items-center justify-center rounded-2xl border border-border bg-bg-panel p-6 text-center">
-        <p className="font-heading text-lg text-text-main">Tagging 準備中</p>
+        <p className="font-heading text-lg text-text-main">Tagging 待機中</p>
         <p className="mt-2 text-sm text-text-dim">
-          次の対象画像がないため、ここでは整理できる画像がありません。
+          次の対象画像がないため、ここでは処理できる画像がありません。
         </p>
       </section>
     );
@@ -153,7 +146,7 @@ export default function ImageTaggingEditor({
           <div className="min-w-0">
             <h2 className="truncate font-heading text-lg text-text-main">{detail.image.fileName}</h2>
             <p className="mt-1 text-xs text-text-dim">
-              {detail.mount?.name ?? 'Unknown'} / {detail.image.folderPath || 'ルート'}
+              {detail.mount?.name ?? 'Unknown'} / {detail.image.folderPath || 'root'}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -161,7 +154,7 @@ export default function ImageTaggingEditor({
               to={`/images/view/${detail.image.id}`}
               className="rounded-xl border border-border bg-bg-surface px-3 py-2 text-xs text-text-muted transition-colors hover:text-text-main"
             >
-              詳細で開く
+              詳細を開く
             </Link>
             <button
               type="button"
@@ -185,7 +178,7 @@ export default function ImageTaggingEditor({
               className="max-h-full max-w-full rounded-xl object-contain"
             />
           ) : (
-            <div className="text-sm text-white/50">画像を読み込めませんでした</div>
+            <div className="text-sm text-white/50">画像を読み込んでいます</div>
           )}
         </div>
 
@@ -211,7 +204,7 @@ export default function ImageTaggingEditor({
           <div className="mt-4">
             <p className="mb-3 text-xs text-text-dim">手動タグ</p>
             {detail.manualTags.length === 0 ? (
-              <p className="text-xs text-text-dim">まだ表示中の手動タグはありません</p>
+              <p className="text-xs text-text-dim">まだ手動タグはありません</p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
                 {detail.manualTags.map((tag) => (
@@ -316,7 +309,7 @@ export default function ImageTaggingEditor({
 
             <div className="mt-4 rounded-2xl border border-border/60 bg-bg-surface/45 p-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-text-dim">カテゴリ</p>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-text-dim">Category</p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-4">
@@ -351,7 +344,7 @@ export default function ImageTaggingEditor({
             <div className="mt-4 rounded-2xl border border-border bg-bg-panel px-4 py-3">
               <div className="mb-3 flex items-end justify-between gap-3">
                 <p className="text-sm font-medium text-text-main">{activeCategoryLabel}</p>
-                <p className="text-[11px] text-text-dim">{filteredTags.length}件</p>
+                <p className="text-[11px] text-text-dim">{filteredTags.length} 件</p>
               </div>
 
               <div className="flex flex-wrap gap-1.5">

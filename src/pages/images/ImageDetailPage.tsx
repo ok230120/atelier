@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { RiArrowLeftLine, RiCloseLine, RiHeartFill, RiHeartLine } from 'react-icons/ri';
-import { db } from '../../db/client';
+import { RiArrowLeftLine, RiHeartFill, RiHeartLine } from 'react-icons/ri';
 import type { ImageMount, ImageRecord, ImageTagRecord } from '../../types/domain';
 import {
   addTagsToImages,
   getImageFileUrl,
   getImageManualTagIds,
+  getImageTaggingMeta,
   removeTagsFromImages,
   sortImageTagsByUsage,
+  toggleImageFavorite,
 } from '../../services/imageService';
 import ImageDetailTagPanel from './components/ImageDetailTagPanel';
 
@@ -23,24 +24,11 @@ export default function ImageDetailPage() {
 
   const load = useCallback(async () => {
     if (!id) return;
-    const nextImage = await db.images.get(id);
-    if (!nextImage) {
-      setImage(null);
-      return;
-    }
-
-    const [tags, nextMount] = await Promise.all([
-      db.imageTags.bulkGet(nextImage.tags),
-      db.imageMounts.get(nextImage.mountId),
-    ]);
-
-    setImage(nextImage);
-    setTagMap(
-      new Map(
-        tags.filter((tag): tag is ImageTagRecord => Boolean(tag)).map((tag) => [tag.id, tag]),
-      ),
-    );
-    setMount(nextMount ?? null);
+    const nextDetail = await getImageTaggingMeta(id);
+    setImage(nextDetail.image);
+    setMount(nextDetail.mount);
+    const nextTags = [...nextDetail.autoTags, ...nextDetail.manualTags];
+    setTagMap(new Map(nextTags.map((tag) => [tag.id, tag])));
   }, [id]);
 
   useEffect(() => {
@@ -49,7 +37,6 @@ export default function ImageDetailPage() {
 
   useEffect(() => {
     let active = true;
-    let objectUrl: string | null = null;
 
     if (!image) {
       setImageUrl(null);
@@ -57,18 +44,12 @@ export default function ImageDetailPage() {
     }
 
     void getImageFileUrl(image).then((url) => {
-      if (!active) {
-        if (url) URL.revokeObjectURL(url);
-        return;
-      }
-
-      objectUrl = url;
+      if (!active) return;
       setImageUrl(url);
     });
 
     return () => {
       active = false;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [image]);
 
@@ -84,12 +65,9 @@ export default function ImageDetailPage() {
     await load();
   };
 
-  const toggleFavorite = async () => {
+  const handleToggleFavorite = async () => {
     if (!image) return;
-    await db.images.update(image.id, {
-      favorite: !image.favorite,
-      updatedAt: Date.now(),
-    });
+    await toggleImageFavorite(image.id);
     await load();
   };
 
@@ -101,8 +79,6 @@ export default function ImageDetailPage() {
     params.set('scope', 'current');
     return `/images?${params.toString()}`;
   }, [image]);
-
-  const autoTagIdSet = useMemo(() => new Set(image?.autoTagIds ?? []), [image?.autoTagIds]);
 
   const autoTags = useMemo(() => {
     if (!image) return [];
@@ -123,7 +99,7 @@ export default function ImageDetailPage() {
   if (!image) {
     return (
       <div className="flex h-screen items-center justify-center">
-        <p className="text-text-dim">画像を読み込めませんでした。</p>
+        <p className="text-text-dim">画像を読み込んでいます...</p>
       </div>
     );
   }
@@ -151,8 +127,7 @@ export default function ImageDetailPage() {
           <img src={imageUrl} alt={image.fileName} className="max-h-full max-w-full object-contain" />
         ) : (
           <div className="text-center text-white/40">
-            <p className="text-sm">画像を読み込めませんでした</p>
-            <p className="mt-2 text-xs">ファイルアクセス権限が不足している可能性があります。</p>
+            <p className="text-sm">画像を読み込んでいます</p>
           </div>
         )}
       </div>
@@ -161,7 +136,7 @@ export default function ImageDetailPage() {
         <div className="border-b border-border p-5">
           <div className="mb-3 flex items-start justify-between gap-2">
             <h1 className="break-all font-heading text-sm leading-snug text-text-main">{image.fileName}</h1>
-            <button onClick={() => void toggleFavorite()} className="mt-0.5 flex-shrink-0">
+            <button onClick={() => void handleToggleFavorite()} className="mt-0.5 flex-shrink-0">
               {image.favorite ? (
                 <RiHeartFill size={20} className="text-red-400" />
               ) : (
@@ -215,20 +190,14 @@ export default function ImageDetailPage() {
               {manualTags.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {manualTags.map((tag) => (
-                    <span
+                    <button
                       key={tag.id}
-                      className="group flex items-center gap-1 rounded-full border border-border bg-bg-surface px-2.5 py-1 text-xs text-text-muted"
+                      type="button"
+                      onClick={() => void handleRemoveTag(tag.id)}
+                      className="group flex items-center gap-1 rounded-full border border-border bg-bg-surface px-2.5 py-1 text-xs text-text-muted transition-colors hover:text-red-300"
                     >
                       {tag.name}
-                      {!autoTagIdSet.has(tag.id) && (
-                        <button
-                          onClick={() => void handleRemoveTag(tag.id)}
-                          className="opacity-0 transition-all hover:text-red-400 group-hover:opacity-100"
-                        >
-                          <RiCloseLine size={12} />
-                        </button>
-                      )}
-                    </span>
+                    </button>
                   ))}
                 </div>
               )}

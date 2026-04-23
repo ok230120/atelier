@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
-import { db } from '../db/client';
-import { fileSystem } from '../services/fileSystem';
 import {
   createImportItemsFromClipboardEvent,
   createImportItemsFromDroppedFiles,
-  createImportItemsFromFileHandles,
   importImageBatch,
   type ImageImportProgress,
 } from '../services/imageImportService';
 import {
   backfillImageTagReadings,
+  createImageMount,
+  createImageSubfolder,
+  getImageAppSettings,
   getOrCreateImageTag,
+  getSubfolders,
   listImageMounts,
   listImageTagCategories,
   listImageTags,
+  pickImageMount,
 } from '../services/imageService';
 import type {
   ImageImportItem,
@@ -30,6 +32,20 @@ function dedupeImportItems(items: ImageImportItem[]) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
+  });
+}
+
+function pickFilesFromInput(): Promise<File[] | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.multiple = true;
+    input.onchange = () => {
+      resolve(input.files ? Array.from(input.files) : null);
+    };
+    input.oncancel = () => resolve(null);
+    input.click();
   });
 }
 
@@ -65,34 +81,33 @@ export function useImageImportSession() {
       listImageMounts(),
       listImageTagCategories(),
       listImageTags(),
-      db.settings.get('app'),
+      getImageAppSettings(),
     ]);
 
     setMounts(nextMounts);
     setCategories(nextCategories);
     setAllTags(nextTags);
-    setRecentFolders(settings?.imageImportRecentFolders ?? []);
-    setRecentTagIds(settings?.imageImportRecentTagIds ?? []);
+    setRecentFolders(settings.imageImportRecentFolders ?? []);
+    setRecentTagIds(settings.imageImportRecentTagIds ?? []);
     setSelectedMountId((prev) => prev || nextMounts[0]?.id || '');
   };
 
   useEffect(() => {
     void refreshMeta();
     void backfillImageTagReadings().then(() => refreshMeta()).catch(() => undefined);
-    setPickerWarning(fileSystem.getOpenFilePickerUnavailableReason());
+    setPickerWarning(null);
   }, []);
 
   useEffect(() => {
-    if (!selectedMount?.dirHandle) {
+    if (!selectedMountId) {
       setChildFolders([]);
       return;
     }
 
-    void fileSystem
-      .listChildDirectories(selectedMount.dirHandle, selectedFolderPath)
+    void getSubfolders(selectedMountId, selectedFolderPath)
       .then(setChildFolders)
       .catch(() => setChildFolders([]));
-  }, [selectedFolderPath, selectedMount]);
+  }, [selectedFolderPath, selectedMountId]);
 
   const enqueueItems = (items: ImageImportItem[]) => {
     if (items.length === 0) return;
@@ -103,14 +118,9 @@ export function useImageImportSession() {
   };
 
   const addFromPicker = async () => {
-    const handles = await fileSystem.pickImageFiles();
-    if (!handles) {
-      setErrorMessage(
-        fileSystem.getOpenFilePickerUnavailableReason() ?? 'ファイル選択を開けませんでした。',
-      );
-      return;
-    }
-    enqueueItems(createImportItemsFromFileHandles(handles));
+    const files = await pickFilesFromInput();
+    if (!files) return;
+    enqueueItems(createImportItemsFromDroppedFiles(files));
   };
 
   const addFromDrop = (files: File[]) => {
@@ -152,29 +162,17 @@ export function useImageImportSession() {
 
   const createSubfolder = async (folderName: string) => {
     const trimmed = folderName.trim();
-    if (!trimmed || !selectedMount?.dirHandle) return;
+    if (!trimmed || !selectedMount) return;
     setErrorMessage(null);
 
     try {
+      await createImageSubfolder(selectedMount.id, selectedFolderPath, trimmed);
       const nextFolderPath = selectedFolderPath ? `${selectedFolderPath}/${trimmed}` : trimmed;
-      const existing = await fileSystem.findDirectoryHandleByPath(
-        selectedMount.dirHandle,
-        nextFolderPath,
-      );
-      if (existing) {
-        setErrorMessage('同じ名前のフォルダがすでにあります。');
-        return;
-      }
-
-      const baseHandle = await fileSystem.ensureDirectoryPath(
-        selectedMount.dirHandle,
-        selectedFolderPath,
-      );
-      await baseHandle.getDirectoryHandle(trimmed, { create: true });
       setSelectedFolderPath(nextFolderPath);
       setSavedFolder(null);
+      setChildFolders(await getSubfolders(selectedMount.id, nextFolderPath));
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : 'フォルダを作成できませんでした。');
+      setErrorMessage(error instanceof Error ? error.message : 'フォルダの作成に失敗しました。');
     }
   };
 
@@ -193,12 +191,12 @@ export function useImageImportSession() {
 
   const submitImport = async () => {
     if (!selectedMount) {
-      setErrorMessage('保存先フォルダを選んでください。');
+      setErrorMessage('保存先フォルダを選択してください。');
       return;
     }
 
     if (queuedItems.length === 0) {
-      setErrorMessage('追加する画像がありません。');
+      setErrorMessage('取り込む画像がありません。');
       return;
     }
 
@@ -225,9 +223,26 @@ export function useImageImportSession() {
       setQueuedItems([]);
       await refreshMeta();
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : '追加に失敗しました。');
+      setErrorMessage(error instanceof Error ? error.message : '取り込みに失敗しました。');
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const addMountFromDialog = async () => {
+    setPickerWarning(null);
+    const basePath = await pickImageMount();
+    if (!basePath) return null;
+
+    try {
+      const mount = await createImageMount(basePath, true);
+      await refreshMeta();
+      setSelectedMountId(mount.id);
+      setSelectedFolderPath('');
+      return basePath;
+    } catch (error) {
+      setPickerWarning(error instanceof Error ? error.message : 'フォルダの登録に失敗しました。');
+      return null;
     }
   };
 
@@ -261,5 +276,6 @@ export function useImageImportSession() {
     toggleTag,
     createTag,
     submitImport,
+    addMountFromDialog,
   };
 }

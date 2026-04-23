@@ -36,7 +36,9 @@ export default function ImageImportDropzone({
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h2 className="font-heading text-lg text-text-main">画像を追加</h2>
-          <p className="mt-1 text-sm text-text-dim">画像を入れて、保存先とタグを決めたらそのまま追加できます。</p>
+          <p className="mt-1 text-sm text-text-dim">
+            画像を入れて、保存先フォルダとタグを決めたらそのまま取り込めます。
+          </p>
         </div>
         <button
           type="button"
@@ -44,7 +46,7 @@ export default function ImageImportDropzone({
           className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm text-white transition-colors hover:bg-blue-500"
         >
           <RiFolderUploadLine size={16} />
-          ファイル選択して移動
+          ファイルを選択
         </button>
       </div>
 
@@ -78,9 +80,11 @@ export default function ImageImportDropzone({
             <RiDragDropLine size={24} />
             <RiClipboardLine size={22} />
           </div>
-          <p className="font-heading text-base text-text-main">ここに画像をドロップ、または Ctrl+V で貼り付け</p>
+          <p className="font-heading text-base text-text-main">
+            ここに画像をドラッグするか、Ctrl+V で貼り付け
+          </p>
           <p className="text-sm text-text-dim">
-            ドロップと貼り付けは新規保存として追加します。ファイル選択は移動扱いです。
+            ドロップと貼り付けは新規画像として取り込みます。ファイル選択でも追加できます。
           </p>
           {pickerWarning && <p className="text-xs text-orange-200">{pickerWarning}</p>}
         </div>

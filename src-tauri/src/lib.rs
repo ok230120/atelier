@@ -432,21 +432,27 @@ fn image_link_ids(
     source: Option<&str>,
 ) -> Result<Vec<String>, String> {
     let sql = match source {
-    Some(_) => "SELECT tag_id FROM image_tag_links WHERE image_id = ?1 AND source = ?2 ORDER BY linked_at",
-    None => "SELECT tag_id FROM image_tag_links WHERE image_id = ?1 ORDER BY linked_at",
-  };
-    let mut statement = conn.prepare(sql).map_err(|error| error.to_string())?;
-    let rows = match source {
-        Some(source) => {
-            statement.query_map(params![image_id, source], |row| row.get::<_, String>(0))
+        Some(_) => {
+            "SELECT tag_id FROM image_tag_links WHERE image_id = ?1 AND source = ?2 ORDER BY linked_at"
         }
-        None => statement.query_map(params![image_id], |row| row.get::<_, String>(0)),
-    }
-    .map_err(|error| error.to_string())?;
-
+        None => "SELECT tag_id FROM image_tag_links WHERE image_id = ?1 ORDER BY linked_at",
+    };
+    let mut statement = conn.prepare(sql).map_err(|error| error.to_string())?;
     let mut values = Vec::new();
-    for row in rows {
-        values.push(row.map_err(|error| error.to_string())?);
+    if let Some(source) = source {
+        let rows = statement
+            .query_map(params![image_id, source], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            values.push(row.map_err(|error| error.to_string())?);
+        }
+    } else {
+        let rows = statement
+            .query_map(params![image_id], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+        for row in rows {
+            values.push(row.map_err(|error| error.to_string())?);
+        }
     }
     Ok(values)
 }

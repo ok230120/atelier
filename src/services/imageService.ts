@@ -41,6 +41,7 @@ import {
   type DesktopImageAppSettings,
   type DesktopImageTaggingMeta,
 } from './imageDesktopApi';
+import { isTauriRuntime } from './tauri';
 
 export type ScanProgress = {
   done: number;
@@ -83,6 +84,11 @@ const DEFAULT_APP_SETTINGS: AppSettings = {
   tagSort: 'popular',
   filterMode: 'AND',
   thumbStore: 'idb',
+};
+
+const EMPTY_DESKTOP_SETTINGS: DesktopImageAppSettings = {
+  imageImportRecentFolders: [],
+  imageImportRecentTagIds: [],
 };
 
 function fromDesktopSettings(settings: DesktopImageAppSettings): AppSettings {
@@ -136,15 +142,26 @@ export function isAutoImageTag(tag: Pick<ImageTagRecord, 'isAuto'>) {
 }
 
 export async function getImageAppSettings(): Promise<AppSettings> {
+  if (!isTauriRuntime()) {
+    return fromDesktopSettings(EMPTY_DESKTOP_SETTINGS);
+  }
   return fromDesktopSettings(await getImageAppSettingsDesktop());
 }
 
 export async function setImageAppSettings(settings: AppSettings): Promise<AppSettings> {
+  if (!isTauriRuntime()) {
+    return {
+      ...settings,
+      imageImportRecentFolders: settings.imageImportRecentFolders ?? [],
+      imageImportRecentTagIds: settings.imageImportRecentTagIds ?? [],
+    };
+  }
   const nextSettings = await setImageAppSettingsDesktop(toDesktopSettings(settings));
   return fromDesktopSettings(nextSettings);
 }
 
 export async function backfillImageTagReadings(): Promise<void> {
+  if (!isTauriRuntime()) return;
   const settings = await getImageAppSettings();
   if (settings.imageTagReadingsBackfillDoneAt) return;
   await setImageAppSettings({
@@ -154,30 +171,45 @@ export async function backfillImageTagReadings(): Promise<void> {
 }
 
 export async function listImageMounts(): Promise<ImageMount[]> {
+  if (!isTauriRuntime()) return [];
   return listImageMountsDesktop();
 }
 
 export async function pickImageMount(): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
   return pickImageMountPath();
 }
 
 export async function createImageMount(basePath: string, includeSubdirs = true): Promise<ImageMount> {
+  if (!isTauriRuntime()) {
+    throw new Error('フォルダ追加は Tauri 版で利用してください。');
+  }
   return createImageMountDesktop(basePath, includeSubdirs);
 }
 
 export async function removeImageMount(mountId: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error('フォルダ削除は Tauri 版で利用してください。');
+  }
   await removeImageMountDesktop(mountId);
 }
 
 export async function relinkImageMount(mountId: string, basePath: string): Promise<ImageMount> {
+  if (!isTauriRuntime()) {
+    throw new Error('フォルダ再指定は Tauri 版で利用してください。');
+  }
   return relinkImageMountDesktop(mountId, basePath);
 }
 
 export async function scanImageMount(mountId: string): Promise<ScanProgress> {
+  if (!isTauriRuntime()) {
+    throw new Error('フォルダスキャンは Tauri 版で利用してください。');
+  }
   return scanImageMountDesktop(mountId);
 }
 
 export async function listImageTagCategories(): Promise<ImageTagCategoryRecord[]> {
+  if (!isTauriRuntime()) return [];
   return listImageTagCategoriesDesktop();
 }
 
@@ -198,6 +230,7 @@ export async function deleteImageTagCategory(categoryId: string): Promise<void> 
 }
 
 export async function listImageTags(): Promise<ImageTagRecord[]> {
+  if (!isTauriRuntime()) return [];
   return listImageTagsDesktop();
 }
 
@@ -230,6 +263,7 @@ export async function removeTagsFromImages(imageIds: string[], tagIds: string[])
 }
 
 export async function queryImages(filter: ImageQueryFilter): Promise<ImageRecord[]> {
+  if (!isTauriRuntime()) return [];
   return listImagesDesktop({
     mountId: filter.mountId,
     folder: filter.folder,
@@ -240,22 +274,31 @@ export async function queryImages(filter: ImageQueryFilter): Promise<ImageRecord
 }
 
 export async function getImageTaggingMeta(imageId: string): Promise<ImageTaggingMeta> {
+  if (!isTauriRuntime()) {
+    throw new Error('画像詳細は Tauri 版で利用してください。');
+  }
   return getImageDetailDesktop(imageId);
 }
 
 export async function toggleImageFavorite(imageId: string): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error('お気に入り変更は Tauri 版で利用してください。');
+  }
   await toggleImageFavoriteDesktop(imageId);
 }
 
 export async function getImageFileUrl(image: ImageRecord): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
   return getImageFileDataUrlDesktop(image.id);
 }
 
 export async function getImageThumbnailUrl(imageId: string): Promise<string | null> {
+  if (!isTauriRuntime()) return null;
   return ensureThumbnailDesktop(imageId);
 }
 
 export async function getSubfolders(mountId: string | null, folder: string): Promise<string[]> {
+  if (!isTauriRuntime()) return [];
   if (!mountId) return [];
   return listChildDirectoriesDesktop(mountId, folder);
 }
@@ -269,10 +312,14 @@ export async function createImageSubfolder(
 }
 
 export async function listMissingImages(): Promise<ImageRecord[]> {
+  if (!isTauriRuntime()) return [];
   return listMissingImagesDesktop();
 }
 
 export async function removeMissingImages(imageIds: string[]): Promise<void> {
+  if (!isTauriRuntime()) {
+    throw new Error('欠損画像の削除は Tauri 版で利用してください。');
+  }
   await removeMissingImagesDesktop(imageIds);
 }
 
@@ -288,6 +335,9 @@ export async function getBulkRemovableTags(imageIds: string[]): Promise<ImageTag
 }
 
 export async function rescanAllImageMounts(): Promise<ImageRescanSummary> {
+  if (!isTauriRuntime()) {
+    return { scannedMountCount: 0, failedMounts: [] };
+  }
   const mounts = await listImageMounts();
   const failedMounts: ImageRescanFailure[] = [];
   let scannedMountCount = 0;
@@ -309,6 +359,13 @@ export async function rescanAllImageMounts(): Promise<ImageRescanSummary> {
 }
 
 export async function getImageStorageInfo(): Promise<ImageStorageInfo> {
+  if (!isTauriRuntime()) {
+    return {
+      mode: 'tauri-sqlite',
+      databaseLabel: 'ブラウザ版では IndexedDB を使用',
+      cacheLabel: 'ブラウザ版ではキャッシュ設定なし',
+    };
+  }
   return {
     mode: 'tauri-sqlite',
     databaseLabel: 'SQLite (app data / atelier.db)',
@@ -317,5 +374,8 @@ export async function getImageStorageInfo(): Promise<ImageStorageInfo> {
 }
 
 export async function importLegacyImageData(payload: string): Promise<LegacyImageImportResult> {
+  if (!isTauriRuntime()) {
+    throw new Error('旧データの取り込みは Tauri 版で利用してください。');
+  }
   return importLegacyImageDataDesktop(payload);
 }

@@ -1,4 +1,5 @@
 import type {
+  ImageAppBuildInfo,
   ImageMount,
   ImageRecord,
   ImageTagCategoryRecord,
@@ -175,4 +176,8 @@ export async function importImagesDesktop(args: {
 
 export async function importLegacyImageDataDesktop(payload: string) {
   return invokeTauri<LegacyImageImportResult>('import_legacy_image_data', { payload });
+}
+
+export async function getAppBuildInfoDesktop() {
+  return invokeTauri<ImageAppBuildInfo>('get_app_build_info');
 }

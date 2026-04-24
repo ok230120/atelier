@@ -15,6 +15,7 @@ type Props = {
   title?: string;
   currentTagIds?: string[];
   availableTagIds?: string[];
+  usageCountOverride?: Record<string, number>;
   onSelect: (tag: ImageTagRecord) => void | Promise<void>;
   onClose: () => void;
 };
@@ -24,6 +25,7 @@ export default function TagSelectorPanel({
   title,
   currentTagIds = [],
   availableTagIds,
+  usageCountOverride,
   onSelect,
   onClose,
 }: Props) {
@@ -200,7 +202,9 @@ export default function TagSelectorPanel({
                         }
                       >
                         {tag.name}
-                        <span className="ml-1 opacity-60">{tag.usageCount}</span>
+                        <span className="ml-1 opacity-60">
+                          {usageCountOverride?.[tag.id] ?? tag.usageCount}
+                        </span>
                       </button>
                     );
                   })}

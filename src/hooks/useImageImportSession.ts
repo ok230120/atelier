@@ -17,6 +17,7 @@ import {
   listImageTags,
   pickImageMount,
 } from '../services/imageService';
+import { isTauriRuntime } from '../services/tauri';
 import type {
   ImageImportItem,
   ImageImportResultItem,
@@ -50,6 +51,7 @@ function pickFilesFromInput(): Promise<File[] | null> {
 }
 
 export function useImageImportSession() {
+  const tauriRuntime = isTauriRuntime();
   const [mounts, setMounts] = useState<ImageMount[]>([]);
   const [categories, setCategories] = useState<ImageTagCategoryRecord[]>([]);
   const [allTags, setAllTags] = useState<ImageTagRecord[]>([]);
@@ -77,6 +79,15 @@ export function useImageImportSession() {
   );
 
   const refreshMeta = async () => {
+    if (!tauriRuntime) {
+      setMounts([]);
+      setCategories([]);
+      setAllTags([]);
+      setRecentFolders([]);
+      setRecentTagIds([]);
+      setSelectedMountId('');
+      return;
+    }
     const [nextMounts, nextCategories, nextTags, settings] = await Promise.all([
       listImageMounts(),
       listImageTagCategories(),
@@ -99,7 +110,7 @@ export function useImageImportSession() {
     void refreshMeta();
     void backfillImageTagReadings().then(() => refreshMeta()).catch(() => undefined);
     setPickerWarning(null);
-  }, []);
+  }, [tauriRuntime]);
 
   useEffect(() => {
     if (!selectedMountId) {
@@ -233,6 +244,10 @@ export function useImageImportSession() {
   };
 
   const addMountFromDialog = async () => {
+    if (!tauriRuntime) {
+      setPickerWarning('旧ブラウザ版ではフォルダ追加は使えません。設定から画像データを書き出してください。');
+      return null;
+    }
     setPickerWarning(null);
     const basePath = await pickImageMount();
     if (!basePath) return null;

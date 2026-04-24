@@ -239,6 +239,12 @@ export type LegacyImageImportResult = {
   importedTags: number;
 };
 
+export type ImageAppBuildInfo = {
+  appVersion: string;
+  buildTimestamp: string;
+  legacyImageSchemaVersion: number;
+};
+
 export type ImageImportSourceKind = 'picker-handle' | 'dropped-file' | 'clipboard-file';
 
 export type ImageImportItem = {

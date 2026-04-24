@@ -219,6 +219,20 @@ export default function ImagesPage() {
   );
   const fallbackMountId = !list.mountId && visibleMounts.length === 1 ? visibleMounts[0].id : list.mountId;
   const activeTagObjects = allTags.filter((tag) => list.selectedTagIds.includes(tag.id));
+  const filterScopedTagUsage = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const image of allImages) {
+      const tagIds = new Set([...(image.tags ?? []), ...(image.autoTagIds ?? [])]);
+      for (const tagId of tagIds) {
+        counts.set(tagId, (counts.get(tagId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [allImages]);
+  const filterUsageCountOverride = useMemo(
+    () => Object.fromEntries(filterScopedTagUsage.entries()),
+    [filterScopedTagUsage],
+  );
 
   const breadcrumbs = useMemo(() => {
     const items: Array<{ label: string; mountId: string; folder: string }> = [];
@@ -595,7 +609,14 @@ export default function ImagesPage() {
           }
           currentTagIds={selectMode && selectedIds.size > 0 ? [] : list.selectedTagIds}
           availableTagIds={
-            tagPanelMode === 'remove' ? removableTags.map((tag) => tag.id) : undefined
+            tagPanelMode === 'remove'
+              ? removableTags.map((tag) => tag.id)
+              : undefined
+          }
+          usageCountOverride={
+            tagPanelMode === 'remove' || (selectMode && selectedIds.size > 0)
+              ? undefined
+              : filterUsageCountOverride
           }
           onSelect={
             selectMode && selectedIds.size > 0

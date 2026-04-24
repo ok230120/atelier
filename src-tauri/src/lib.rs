@@ -18,18 +18,40 @@ use walkdir::WalkDir;
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"];
 const SETTINGS_ID: &str = "image";
 const FALLBACK_CATEGORY_ID: &str = "image-category:other";
+const LEGACY_IMAGE_SCHEMA_VERSION: i64 = 1;
 const DEFAULT_CATEGORIES: [(&str, &str, bool); 10] = [
-    ("image-category:work", "Work", false),
-    ("image-category:character", "Character", false),
-    ("image-category:hair-color", "Hair Color", false),
-    ("image-category:hair-style", "Hair Style", false),
-    ("image-category:clothing", "Clothing", false),
-    ("image-category:legs", "Legs", false),
-    ("image-category:expression", "Expression", false),
-    ("image-category:attribute", "Attribute", false),
-    ("image-category:composition", "Composition", false),
-    (FALLBACK_CATEGORY_ID, "Other", true),
+    ("image-category:work", "作品", false),
+    ("image-category:character", "キャラ", false),
+    ("image-category:hair-color", "髪色", false),
+    ("image-category:hair-style", "髪型", false),
+    ("image-category:clothing", "服装", false),
+    ("image-category:legs", "脚", false),
+    ("image-category:expression", "表情", false),
+    ("image-category:attribute", "属性", false),
+    ("image-category:composition", "構図", false),
+    (FALLBACK_CATEGORY_ID, "その他", true),
 ];
+
+fn ensure_default_image_tag_categories(conn: &Connection) -> Result<(), String> {
+    let existing_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM image_tag_categories", [], |row| row.get(0))
+        .map_err(|error| error.to_string())?;
+
+    if existing_count > 0 {
+        return Ok(());
+    }
+
+    let now = now_ms();
+    for (index, (id, name, protected)) in DEFAULT_CATEGORIES.iter().enumerate() {
+        conn.execute(
+            "INSERT INTO image_tag_categories (id, name, order_index, created_at, protected) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, name, index as i64, now + index as i64, bool_to_i64(*protected)],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -182,8 +204,22 @@ struct LegacyImageImportResult {
     imported_tags: i64,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct AppBuildInfo {
+    app_version: String,
+    build_timestamp: String,
+    legacy_image_schema_version: i64,
+}
+
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+fn build_timestamp() -> String {
+    option_env!("ATELIER_BUILD_TIMESTAMP")
+        .unwrap_or("0")
+        .to_string()
 }
 
 fn bool_to_i64(value: bool) -> i64 {
@@ -377,22 +413,8 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
     )
     .map_err(|error| error.to_string())?;
 
-    let existing_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM image_tag_categories", [], |row| {
-            row.get(0)
-        })
-        .map_err(|error| error.to_string())?;
-    if existing_count == 0 {
-        let now = now_ms();
-        for (index, (id, name, protected)) in DEFAULT_CATEGORIES.iter().enumerate() {
-            conn
-        .execute(
-          "INSERT INTO image_tag_categories (id, name, order_index, created_at, protected) VALUES (?1, ?2, ?3, ?4, ?5)",
-          params![id, name, index as i64, now + index as i64, bool_to_i64(*protected)],
-        )
-        .map_err(|error| error.to_string())?;
-        }
-    }
+    ensure_default_image_tag_categories(conn)?;
+    reassign_auto_tag_categories(conn)?;
 
     conn.execute(
         "INSERT OR IGNORE INTO app_settings (id) VALUES (?1)",
@@ -437,16 +459,204 @@ fn derive_folder_auto_tag_names(folder_path: &str) -> Vec<String> {
         .collect()
 }
 
-fn tag_usage_count(conn: &Connection, tag_id: &str) -> Result<i64, String> {
+fn auto_tag_category_id_for_folder(conn: &Connection, folder_path: &str) -> Result<String, String> {
+    let Some(root_name) = top_level_folder_name(folder_path) else {
+        return Ok(FALLBACK_CATEGORY_ID.to_string());
+    };
+
+    Ok(find_category_id_by_name(conn, root_name)?
+        .unwrap_or_else(|| FALLBACK_CATEGORY_ID.to_string()))
+}
+
+fn top_level_folder_name(folder_path: &str) -> Option<&str> {
+    folder_path
+        .split('/')
+        .map(str::trim)
+        .find(|part| !part.is_empty())
+}
+
+fn find_category_id_by_name(conn: &Connection, name: &str) -> Result<Option<String>, String> {
     conn.query_row(
-        "SELECT COUNT(DISTINCT l.image_id)
+        "SELECT id FROM image_tag_categories WHERE name = ?1",
+        params![name],
+        |row| row.get::<_, String>(0),
+    )
+    .optional()
+    .map_err(|error| error.to_string())
+}
+
+fn reassign_auto_tag_categories(conn: &Connection) -> Result<(), String> {
+    let mut auto_tags_statement = conn
+        .prepare("SELECT id, category_id FROM image_tags WHERE is_auto = 1")
+        .map_err(|error| error.to_string())?;
+    let auto_tags = auto_tags_statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|error| error.to_string())?;
+
+    let mut tags = Vec::new();
+    for row in auto_tags {
+        tags.push(row.map_err(|error| error.to_string())?);
+    }
+
+    for (tag_id, current_category_id) in tags {
+        let mut folder_rows_statement = conn
+            .prepare(
+                "SELECT DISTINCT i.folder_path
+                 FROM image_tag_links l
+                 INNER JOIN images i ON i.id = l.image_id
+                 WHERE l.tag_id = ?1 AND l.source = 'auto' AND i.is_missing = 0",
+            )
+            .map_err(|error| error.to_string())?;
+        let folder_rows = folder_rows_statement
+            .query_map(params![tag_id.clone()], |row| row.get::<_, String>(0))
+            .map_err(|error| error.to_string())?;
+
+        let mut root_names = HashSet::new();
+        for row in folder_rows {
+            let folder_path = row.map_err(|error| error.to_string())?;
+            if let Some(root_name) = top_level_folder_name(&folder_path) {
+                root_names.insert(root_name.to_string());
+            }
+        }
+
+        if root_names.len() != 1 {
+            continue;
+        }
+
+        let root_name = root_names.into_iter().next().unwrap_or_default();
+        let Some(next_category_id) = find_category_id_by_name(conn, &root_name)? else {
+            continue;
+        };
+
+        if next_category_id != current_category_id {
+            conn.execute(
+                "UPDATE image_tags SET category_id = ?2 WHERE id = ?1",
+                params![tag_id, next_category_id],
+            )
+            .map_err(|error| error.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn normalize_windows_like_path(value: &str, separator: char) -> String {
+    let replaced = value.trim().replace('/', "\\");
+    let mut parts: Vec<String> = Vec::new();
+    let mut prefix: Option<String> = None;
+
+    for (index, part) in replaced.split('\\').enumerate() {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if index == 0 && trimmed.ends_with(':') {
+            prefix = Some(trimmed.to_lowercase());
+            continue;
+        }
+        if trimmed == "." {
+            continue;
+        }
+        if trimmed == ".." {
+            if parts.last().is_some() && parts.last().is_some_and(|last| last != "..") {
+                parts.pop();
+            } else if prefix.is_none() {
+                parts.push("..".to_string());
+            }
+            continue;
+        }
+        parts.push(trimmed.to_lowercase());
+    }
+
+    let joined = parts.join(&separator.to_string());
+    match prefix {
+        Some(prefix) if joined.is_empty() => prefix,
+        Some(prefix) => format!("{prefix}{separator}{joined}"),
+        None => joined,
+    }
+}
+
+fn normalize_mount_base_path(base_path: &str) -> String {
+    normalize_windows_like_path(base_path, '\\')
+}
+
+fn normalize_relative_path(relative_path: &str) -> String {
+    normalize_windows_like_path(relative_path, '/')
+}
+
+fn normalize_relative_path_for_storage(relative_path: &str) -> String {
+    relative_path
+        .trim()
+        .replace('\\', "/")
+        .split('/')
+        .map(str::trim)
+        .filter(|part| !part.is_empty() && *part != ".")
+        .fold(Vec::<String>::new(), |mut parts, part| {
+            if part == ".." {
+                if parts.last().is_some() && parts.last().is_some_and(|last| last != "..") {
+                    parts.pop();
+                } else {
+                    parts.push(part.to_string());
+                }
+            } else {
+                parts.push(part.to_string());
+            }
+            parts
+        })
+        .join("/")
+}
+
+fn absolute_path_for_mount(base_path: &str, relative_path: &str) -> String {
+    let normalized_relative = normalize_relative_path_for_storage(relative_path);
+    if normalized_relative.is_empty() {
+        base_path.to_string()
+    } else {
+        PathBuf::from(base_path)
+            .join(normalized_relative.replace('/', "\\"))
+            .to_string_lossy()
+            .to_string()
+    }
+}
+
+fn list_visible_mount_ids(conn: &Connection) -> Result<HashSet<String>, String> {
+    let mounts = list_all_mounts(conn)?;
+    Ok(mounts
+        .into_iter()
+        .filter(|mount| mount.is_available != Some(false))
+        .map(|mount| mount.id)
+        .collect())
+}
+
+fn tag_usage_count(
+    conn: &Connection,
+    tag_id: &str,
+    visible_mount_ids: &HashSet<String>,
+) -> Result<i64, String> {
+    let equivalent_ids = equivalent_tag_ids(conn, tag_id)?;
+    let mut statement = conn
+        .prepare(
+            "SELECT DISTINCT i.id, i.mount_id
        FROM image_tag_links l
        INNER JOIN images i ON i.id = l.image_id
        WHERE l.tag_id = ?1 AND i.is_missing = 0",
-        params![tag_id],
-        |row| row.get(0),
-    )
-    .map_err(|error| error.to_string())
+        )
+        .map_err(|error| error.to_string())?;
+    let mut image_ids = HashSet::new();
+    for equivalent_id in equivalent_ids {
+        let rows = statement
+            .query_map(params![equivalent_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|error| error.to_string())?;
+
+        for row in rows {
+            let (image_id, mount_id) = row.map_err(|error| error.to_string())?;
+            if visible_mount_ids.contains(&mount_id) {
+                image_ids.insert(image_id);
+            }
+        }
+    }
+    Ok(image_ids.len() as i64)
 }
 
 fn fetch_settings(conn: &Connection) -> Result<ImageAppSettings, String> {
@@ -495,20 +705,35 @@ fn ensure_tag(
     is_auto: bool,
 ) -> Result<String, String> {
     let normalized_name = normalize_tag_name(name);
-    let existing: Option<(String, bool)> = conn
+    let existing: Option<(String, bool, String)> = conn
         .query_row(
-            "SELECT id, is_auto FROM image_tags WHERE normalized_name = ?1",
+            "SELECT id, is_auto, category_id FROM image_tags WHERE normalized_name = ?1",
             params![normalized_name],
-            |row| Ok((row.get(0)?, row.get::<_, i64>(1)? != 0)),
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)? != 0,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .optional()
         .map_err(|error| error.to_string())?;
 
-    if let Some((tag_id, existing_is_auto)) = existing {
-        if is_auto && !existing_is_auto {
+    if let Some((tag_id, existing_is_auto, existing_category_id)) = existing {
+        if is_auto {
+            let next_category_id = category_id.unwrap_or(FALLBACK_CATEGORY_ID);
+            if !existing_is_auto || existing_category_id != next_category_id {
+                conn.execute(
+                    "UPDATE image_tags SET is_auto = 1, category_id = ?2 WHERE id = ?1",
+                    params![tag_id, next_category_id],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+        } else if !existing_is_auto && category_id.is_some() && existing_category_id != category_id.unwrap() {
             conn.execute(
-                "UPDATE image_tags SET is_auto = 1 WHERE id = ?1",
-                params![tag_id],
+                "UPDATE image_tags SET category_id = ?2 WHERE id = ?1",
+                params![tag_id, category_id.unwrap()],
             )
             .map_err(|error| error.to_string())?;
         }
@@ -593,6 +818,45 @@ fn hydrate_image_record(conn: &Connection, mut image: ImageRecord) -> Result<Ima
     Ok(image)
 }
 
+fn equivalent_tag_ids(conn: &Connection, tag_id: &str) -> Result<HashSet<String>, String> {
+    let tag = conn
+        .query_row(
+            "SELECT name, normalized_name FROM image_tags WHERE id = ?1",
+            params![tag_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .optional()
+        .map_err(|error| error.to_string())?;
+
+    let Some((name, normalized_name)) = tag else {
+        return Ok(HashSet::from([tag_id.to_string()]));
+    };
+
+    let mut statement = conn
+        .prepare(
+            "SELECT id FROM image_tags
+             WHERE id = ?1 OR name = ?2 OR normalized_name = ?3",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![tag_id, name, normalized_name], |row| {
+            row.get::<_, String>(0)
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut ids = HashSet::new();
+    for row in rows {
+        ids.insert(row.map_err(|error| error.to_string())?);
+    }
+    ids.insert(tag_id.to_string());
+    Ok(ids)
+}
+
+fn image_has_any_tag(image: &ImageRecord, tag_ids: &HashSet<String>) -> bool {
+    image.tags.iter().any(|current| tag_ids.contains(current))
+        || image.auto_tag_ids.iter().any(|current| tag_ids.contains(current))
+}
+
 fn load_image_record_by_id(conn: &Connection, image_id: &str) -> Result<ImageRecord, String> {
     let image = conn
         .query_row(
@@ -642,6 +906,39 @@ fn decorate_mount(conn: &Connection, mut mount: ImageMount) -> Result<ImageMount
     Ok(mount)
 }
 
+fn list_all_mounts(conn: &Connection) -> Result<Vec<ImageMount>, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, name, base_path, include_subdirs, added_at, last_scanned_at, image_count
+       FROM image_mounts ORDER BY added_at DESC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok(ImageMount {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                base_path: row.get(2)?,
+                include_subdirs: row.get::<_, i64>(3)? != 0,
+                added_at: row.get(4)?,
+                last_scanned_at: row.get(5)?,
+                image_count: row.get(6)?,
+                is_available: None,
+                missing_image_count: None,
+            })
+        })
+        .map_err(|error| error.to_string())?;
+
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(decorate_mount(
+            conn,
+            row.map_err(|error| error.to_string())?,
+        )?);
+    }
+    Ok(items)
+}
+
 fn fetch_mount(conn: &Connection, mount_id: &str) -> Result<Option<ImageMount>, String> {
     let mount = conn
         .query_row(
@@ -671,11 +968,256 @@ fn fetch_mount(conn: &Connection, mount_id: &str) -> Result<Option<ImageMount>, 
     }
 }
 
+fn find_mounts_by_normalized_base_path(
+    conn: &Connection,
+    normalized_base_path: &str,
+) -> Result<Vec<ImageMount>, String> {
+    Ok(list_all_mounts(conn)?
+        .into_iter()
+        .filter(|mount| normalize_mount_base_path(&mount.base_path) == normalized_base_path)
+        .collect())
+}
+
+fn select_preferred_mount_for_merge(
+    mounts: &[ImageMount],
+    avoided_mount_ids: &HashSet<String>,
+) -> Option<String> {
+    mounts
+        .iter()
+        .max_by(|left, right| {
+            let left_available = left.is_available == Some(true);
+            let right_available = right.is_available == Some(true);
+            if left_available != right_available {
+                return left_available.cmp(&right_available);
+            }
+
+            if left_available && right_available {
+                let left_preferred = !avoided_mount_ids.contains(&left.id);
+                let right_preferred = !avoided_mount_ids.contains(&right.id);
+                if left_preferred != right_preferred {
+                    return left_preferred.cmp(&right_preferred);
+                }
+            }
+
+            let left_count = left.image_count.unwrap_or(0);
+            let right_count = right.image_count.unwrap_or(0);
+            if left_count != right_count {
+                return left_count.cmp(&right_count);
+            }
+
+            right.added_at.cmp(&left.added_at)
+        })
+        .map(|mount| mount.id.clone())
+}
+
+fn load_images_by_mount(conn: &Connection, mount_id: &str) -> Result<Vec<ImageRecord>, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT id, mount_id, relative_path, file_name, folder_path, absolute_path, favorite, added_at, updated_at, is_missing, last_seen_at, width, height
+       FROM images WHERE mount_id = ?1",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![mount_id], build_image_record_base)
+        .map_err(|error| error.to_string())?;
+    let mut images = Vec::new();
+    for row in rows {
+        images.push(hydrate_image_record(
+            conn,
+            row.map_err(|error| error.to_string())?,
+        )?);
+    }
+    Ok(images)
+}
+
+fn load_image_tag_links(
+    conn: &Connection,
+    image_id: &str,
+) -> Result<Vec<(String, String, i64)>, String> {
+    let mut statement = conn
+        .prepare(
+            "SELECT tag_id, source, linked_at FROM image_tag_links WHERE image_id = ?1 ORDER BY linked_at ASC",
+        )
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![image_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut links = Vec::new();
+    for row in rows {
+        links.push(row.map_err(|error| error.to_string())?);
+    }
+    Ok(links)
+}
+
+fn merge_recent_folders_for_mount_change(
+    conn: &Connection,
+    source_mount_id: &str,
+    target_mount_id: &str,
+) -> Result<(), String> {
+    let existing_settings = fetch_settings(conn)?;
+    let remapped_folders = existing_settings
+        .image_import_recent_folders
+        .into_iter()
+        .map(|mut folder| {
+            if folder.mount_id == source_mount_id {
+                folder.mount_id = target_mount_id.to_string();
+            }
+            folder
+        })
+        .collect::<Vec<_>>();
+    store_settings(
+        conn,
+        &ImageAppSettings {
+            image_import_recent_folders: merge_recent_folders(Vec::new(), remapped_folders),
+            image_import_recent_tag_ids: existing_settings.image_import_recent_tag_ids,
+            image_tag_readings_backfill_done_at: existing_settings.image_tag_readings_backfill_done_at,
+        },
+    )
+}
+
+fn merge_mounts_tx(
+    tx: &rusqlite::Transaction<'_>,
+    source_mount_id: &str,
+    target_mount_id: &str,
+) -> Result<(), String> {
+    if source_mount_id == target_mount_id {
+        return Ok(());
+    }
+
+    let source_mount = fetch_mount(tx, source_mount_id)?
+        .ok_or_else(|| "Source image mount not found.".to_string())?;
+    let target_mount = fetch_mount(tx, target_mount_id)?
+        .ok_or_else(|| "Target image mount not found.".to_string())?;
+
+    let target_images = load_images_by_mount(tx, target_mount_id)?;
+    let mut target_image_map = HashMap::new();
+    for image in target_images {
+        target_image_map.insert(normalize_relative_path(&image.relative_path), image);
+    }
+
+    for source_image in load_images_by_mount(tx, source_mount_id)? {
+        let normalized_relative_path = normalize_relative_path(&source_image.relative_path);
+        if let Some(target_image) = target_image_map.get(&normalized_relative_path) {
+            for (tag_id, source, linked_at) in load_image_tag_links(tx, &source_image.id)? {
+                tx.execute(
+                    "INSERT OR IGNORE INTO image_tag_links (image_id, tag_id, source, linked_at) VALUES (?1, ?2, ?3, ?4)",
+                    params![target_image.id, tag_id, source, linked_at],
+                )
+                .map_err(|error| error.to_string())?;
+            }
+
+            let merged_favorite = target_image.favorite || source_image.favorite;
+            let merged_added_at = target_image.added_at.max(source_image.added_at);
+            let merged_updated_at = target_image.updated_at.max(source_image.updated_at);
+            let merged_last_seen_at = match (target_image.last_seen_at, source_image.last_seen_at) {
+                (Some(left), Some(right)) => Some(left.max(right)),
+                (Some(left), None) => Some(left),
+                (None, Some(right)) => Some(right),
+                (None, None) => None,
+            };
+            let merged_width = target_image.width.or(source_image.width);
+            let merged_height = target_image.height.or(source_image.height);
+            let merged_is_missing =
+                target_image.is_missing.unwrap_or(false) && source_image.is_missing.unwrap_or(false);
+            let merged_absolute_path =
+                absolute_path_for_mount(&target_mount.base_path, &target_image.relative_path);
+
+            tx.execute(
+                "UPDATE images
+                 SET absolute_path = ?2,
+                     favorite = ?3,
+                     added_at = ?4,
+                     updated_at = ?5,
+                     is_missing = ?6,
+                     last_seen_at = ?7,
+                     width = ?8,
+                     height = ?9
+                 WHERE id = ?1",
+                params![
+                    target_image.id,
+                    merged_absolute_path,
+                    bool_to_i64(merged_favorite),
+                    merged_added_at,
+                    merged_updated_at,
+                    bool_to_i64(merged_is_missing),
+                    merged_last_seen_at,
+                    merged_width,
+                    merged_height
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+
+            tx.execute(
+                "DELETE FROM image_tag_links WHERE image_id = ?1",
+                params![source_image.id.clone()],
+            )
+            .map_err(|error| error.to_string())?;
+            tx.execute("DELETE FROM images WHERE id = ?1", params![source_image.id])
+                .map_err(|error| error.to_string())?;
+            continue;
+        }
+
+        tx.execute(
+            "UPDATE images
+             SET mount_id = ?2,
+                 absolute_path = ?3,
+                 folder_path = ?4
+             WHERE id = ?1",
+            params![
+                source_image.id,
+                target_mount_id,
+                absolute_path_for_mount(&target_mount.base_path, &source_image.relative_path),
+                folder_path_from_relative(&normalize_relative_path_for_storage(&source_image.relative_path))
+            ],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    merge_recent_folders_for_mount_change(tx, source_mount_id, target_mount_id)?;
+    tx.execute("DELETE FROM image_mounts WHERE id = ?1", params![source_mount.id])
+        .map_err(|error| error.to_string())?;
+    resync_image_count(tx, target_mount_id)?;
+    Ok(())
+}
+
+fn dedupe_same_base_path_mounts_tx(
+    tx: &rusqlite::Transaction<'_>,
+    normalized_base_path: &str,
+    avoided_mount_ids: &HashSet<String>,
+) -> Result<Option<String>, String> {
+    let mounts = find_mounts_by_normalized_base_path(tx, normalized_base_path)?;
+    if mounts.is_empty() {
+        return Ok(None);
+    }
+    if mounts.len() == 1 {
+        return Ok(mounts.first().map(|mount| mount.id.clone()));
+    }
+
+    let target_mount_id = select_preferred_mount_for_merge(&mounts, avoided_mount_ids)
+        .ok_or_else(|| "Failed to select image mount merge target.".to_string())?;
+
+    for mount in mounts {
+        if mount.id == target_mount_id {
+            continue;
+        }
+        merge_mounts_tx(tx, &mount.id, &target_mount_id)?;
+    }
+
+    Ok(Some(target_mount_id))
+}
+
 fn update_auto_tags_for_image(
     conn: &Connection,
     image_id: &str,
     folder_path: &str,
 ) -> Result<(), String> {
+    let auto_category_id = auto_tag_category_id_for_folder(conn, folder_path)?;
     conn.execute(
         "DELETE FROM image_tag_links WHERE image_id = ?1 AND source = 'auto'",
         params![image_id],
@@ -683,7 +1225,7 @@ fn update_auto_tags_for_image(
     .map_err(|error| error.to_string())?;
 
     for tag_name in derive_folder_auto_tag_names(folder_path) {
-        let tag_id = ensure_tag(conn, &tag_name, Some(FALLBACK_CATEGORY_ID), true)?;
+        let tag_id = ensure_tag(conn, &tag_name, Some(&auto_category_id), true)?;
         conn
       .execute(
         "INSERT OR IGNORE INTO image_tag_links (image_id, tag_id, source, linked_at) VALUES (?1, ?2, 'auto', ?3)",
@@ -825,14 +1367,23 @@ fn resolve_import_image_id(conn: &Connection, image: &ImageRecord) -> Result<Str
         return Ok(existing_id);
     }
 
-    let existing_by_path: Option<String> = conn
-        .query_row(
-            "SELECT id FROM images WHERE mount_id = ?1 AND relative_path = ?2",
-            params![image.mount_id.clone(), image.relative_path.clone()],
-            |row| row.get(0),
-        )
-        .optional()
+    let normalized_relative_path = normalize_relative_path(&image.relative_path);
+    let mut statement = conn
+        .prepare("SELECT id, relative_path FROM images WHERE mount_id = ?1")
         .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map(params![image.mount_id.clone()], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|error| error.to_string())?;
+    let mut existing_by_path = None;
+    for row in rows {
+        let (existing_id, existing_relative_path) = row.map_err(|error| error.to_string())?;
+        if normalize_relative_path(&existing_relative_path) == normalized_relative_path {
+            existing_by_path = Some(existing_id);
+            break;
+        }
+    }
 
     Ok(existing_by_path.unwrap_or_else(|| image.id.clone()))
 }
@@ -879,6 +1430,16 @@ fn create_image_mount(
     let conn = open_db(&app)?;
     let now = now_ms();
     let path = PathBuf::from(&base_path);
+    let normalized_base_path = normalize_mount_base_path(&base_path);
+    if let Some(existing_mount_id) =
+        select_preferred_mount_for_merge(
+            &find_mounts_by_normalized_base_path(&conn, &normalized_base_path)?,
+            &HashSet::new(),
+        )
+    {
+        return fetch_mount(&conn, &existing_mount_id)?
+            .ok_or_else(|| "Image mount not found.".to_string());
+    }
     let name = path
         .file_name()
         .and_then(|value| value.to_str())
@@ -928,7 +1489,7 @@ fn relink_image_mount(
     mount_id: String,
     base_path: String,
 ) -> Result<ImageMount, String> {
-    let conn = open_db(&app)?;
+    let mut conn = open_db(&app)?;
     let existing =
         fetch_mount(&conn, &mount_id)?.ok_or_else(|| "Image mount not found.".to_string())?;
     let path = PathBuf::from(&base_path);
@@ -937,49 +1498,31 @@ fn relink_image_mount(
         .and_then(|value| value.to_str())
         .unwrap_or(&existing.name)
         .to_string();
+    let normalized_base_path = normalize_mount_base_path(&base_path);
+    let avoided_mount_ids = HashSet::from([mount_id.clone()]);
 
-    conn.execute(
-        "UPDATE image_mounts SET name = ?2, base_path = ?3 WHERE id = ?1",
-        params![mount_id.clone(), name, base_path],
-    )
-    .map_err(|error| error.to_string())?;
+    let surviving_mount_id = {
+        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        tx.execute(
+            "UPDATE image_mounts SET name = ?2, base_path = ?3 WHERE id = ?1",
+            params![mount_id.clone(), name, base_path],
+        )
+        .map_err(|error| error.to_string())?;
+        let surviving_mount_id =
+            dedupe_same_base_path_mounts_tx(&tx, &normalized_base_path, &avoided_mount_ids)?
+                .unwrap_or(mount_id.clone());
+        tx.commit().map_err(|error| error.to_string())?;
+        surviving_mount_id
+    };
 
-    fetch_mount(&conn, &mount_id)?.ok_or_else(|| "Image mount not found.".to_string())
+    fetch_mount(&conn, &surviving_mount_id)?
+        .ok_or_else(|| "Image mount not found.".to_string())
 }
 
 #[tauri::command]
 fn list_image_mounts(app: AppHandle) -> Result<Vec<ImageMount>, String> {
     let conn = open_db(&app)?;
-    let mut statement = conn
-        .prepare(
-            "SELECT id, name, base_path, include_subdirs, added_at, last_scanned_at, image_count
-       FROM image_mounts ORDER BY added_at DESC",
-        )
-        .map_err(|error| error.to_string())?;
-    let rows = statement
-        .query_map([], |row| {
-            Ok(ImageMount {
-                id: row.get(0)?,
-                name: row.get(1)?,
-                base_path: row.get(2)?,
-                include_subdirs: row.get::<_, i64>(3)? != 0,
-                added_at: row.get(4)?,
-                last_scanned_at: row.get(5)?,
-                image_count: row.get(6)?,
-                is_available: None,
-                missing_image_count: None,
-            })
-        })
-        .map_err(|error| error.to_string())?;
-
-    let mut items = Vec::new();
-    for row in rows {
-        items.push(decorate_mount(
-            &conn,
-            row.map_err(|error| error.to_string())?,
-        )?);
-    }
-    Ok(items)
+    list_all_mounts(&conn)
 }
 
 #[tauri::command]
@@ -1062,11 +1605,12 @@ fn scan_image_mount(app: AppHandle, mount_id: String) -> Result<ScanProgress, St
 #[tauri::command]
 fn list_images(app: AppHandle, filter: ImageQueryFilter) -> Result<Vec<ImageRecord>, String> {
     let conn = open_db(&app)?;
-    let available_mount_ids: HashSet<String> = list_image_mounts(app.clone())?
-        .into_iter()
-        .filter(|mount| mount.is_available != Some(false))
-        .map(|mount| mount.id)
-        .collect();
+    let available_mount_ids = list_visible_mount_ids(&conn)?;
+    let filter_tag_groups = filter
+        .tag_ids
+        .iter()
+        .map(|tag_id| equivalent_tag_ids(&conn, tag_id))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut statement = conn
     .prepare(
       "SELECT id, mount_id, relative_path, file_name, folder_path, absolute_path, favorite, added_at, updated_at, is_missing, last_seen_at, width, height
@@ -1112,11 +1656,10 @@ fn list_images(app: AppHandle, filter: ImageQueryFilter) -> Result<Vec<ImageReco
             // no-op; root allows all direct children for mount
         }
 
-        if !filter.tag_ids.is_empty()
-            && !filter
-                .tag_ids
+        if !filter_tag_groups.is_empty()
+            && !filter_tag_groups
                 .iter()
-                .all(|tag_id| image.tags.contains(tag_id))
+                .all(|tag_ids| image_has_any_tag(&image, tag_ids))
         {
             continue;
         }
@@ -1275,6 +1818,7 @@ fn delete_image_tag_category(app: AppHandle, category_id: String) -> Result<(), 
 #[tauri::command]
 fn list_image_tags(app: AppHandle) -> Result<Vec<ImageTagRecord>, String> {
     let conn = open_db(&app)?;
+    let visible_mount_ids = list_visible_mount_ids(&conn)?;
     let mut statement = conn
     .prepare(
       "SELECT id, name, normalized_name, search_readings_json, category_id, is_auto, created_at
@@ -1283,9 +1827,8 @@ fn list_image_tags(app: AppHandle) -> Result<Vec<ImageTagRecord>, String> {
     .map_err(|error| error.to_string())?;
     let rows = statement
         .query_map([], |row| {
-            let tag_id: String = row.get(0)?;
             Ok(ImageTagRecord {
-                id: tag_id.clone(),
+                id: row.get(0)?,
                 name: row.get(1)?,
                 normalized_name: row.get(2)?,
                 search_readings: serde_json::from_str::<Vec<String>>(&row.get::<_, String>(3)?)
@@ -1293,13 +1836,16 @@ fn list_image_tags(app: AppHandle) -> Result<Vec<ImageTagRecord>, String> {
                 category_id: row.get(4)?,
                 is_auto: row.get::<_, i64>(5)? != 0,
                 created_at: row.get(6)?,
-                usage_count: tag_usage_count(&conn, &tag_id).unwrap_or_default(),
+                usage_count: 0,
             })
         })
         .map_err(|error| error.to_string())?;
     let mut tags = Vec::new();
     for row in rows {
         tags.push(row.map_err(|error| error.to_string())?);
+    }
+    for tag in &mut tags {
+        tag.usage_count = tag_usage_count(&conn, &tag.id, &visible_mount_ids)?;
     }
     tags.sort_by(|a, b| b.usage_count.cmp(&a.usage_count).then(a.name.cmp(&b.name)));
     Ok(tags)
@@ -1665,7 +2211,7 @@ fn export_legacy_image_data(app: AppHandle) -> Result<LegacyImageExportEnvelope,
     Ok(LegacyImageExportEnvelope {
         app: "atelier".to_string(),
         kind: "legacy-image-data".to_string(),
-        schema_version: 1,
+        schema_version: LEGACY_IMAGE_SCHEMA_VERSION,
         exported_at: chrono::Utc::now().to_rfc3339(),
         data: LegacyImageData {
             mounts,
@@ -1680,6 +2226,15 @@ fn export_legacy_image_data(app: AppHandle) -> Result<LegacyImageExportEnvelope,
 }
 
 #[tauri::command]
+fn get_app_build_info() -> AppBuildInfo {
+    AppBuildInfo {
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        build_timestamp: build_timestamp(),
+        legacy_image_schema_version: LEGACY_IMAGE_SCHEMA_VERSION,
+    }
+}
+
+#[tauri::command]
 fn import_legacy_image_data(
     app: AppHandle,
     payload: String,
@@ -1689,7 +2244,7 @@ fn import_legacy_image_data(
     if envelope.app != "atelier" || envelope.kind != "legacy-image-data" {
         return Err("Unsupported legacy image export format.".to_string());
     }
-    if envelope.schema_version != 1 {
+    if envelope.schema_version != LEGACY_IMAGE_SCHEMA_VERSION {
         return Err(format!(
             "Unsupported legacy image schemaVersion: {}",
             envelope.schema_version
@@ -1698,9 +2253,11 @@ fn import_legacy_image_data(
 
     let backup_path = backup_current_database(&app)?;
     let data = envelope.data;
-    let conn = open_db(&app)?;
+    let mut conn = open_db(&app)?;
     let imported_mounts = data.mounts.len() as i64;
     let imported_tags = data.tags.len() as i64;
+    let mut imported_mount_ids = HashSet::new();
+    let mut imported_normalized_base_paths = HashSet::new();
     for category in data.categories {
         conn
       .execute(
@@ -1710,6 +2267,8 @@ fn import_legacy_image_data(
       .map_err(|error| error.to_string())?;
     }
     for mount in data.mounts {
+        imported_mount_ids.insert(mount.id.clone());
+        imported_normalized_base_paths.insert(normalize_mount_base_path(&mount.base_path));
         conn
       .execute(
         "INSERT OR REPLACE INTO image_mounts (id, name, base_path, include_subdirs, added_at, last_scanned_at, image_count) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
@@ -1727,6 +2286,8 @@ fn import_legacy_image_data(
     }
     let mut imported_images = 0_i64;
     for image in data.images {
+        let stored_relative_path = normalize_relative_path_for_storage(&image.relative_path);
+        let stored_folder_path = folder_path_from_relative(&stored_relative_path);
         let resolved_image_id = resolve_import_image_id(&conn, &image)?;
         let absolute_path = if image.absolute_path.trim().is_empty() {
             "__missing__/unresolved".to_string()
@@ -1753,9 +2314,9 @@ fn import_legacy_image_data(
             params![
                 resolved_image_id,
                 image.mount_id,
-                image.relative_path,
+                stored_relative_path,
                 image.file_name,
-                image.folder_path,
+                stored_folder_path,
                 absolute_path,
                 bool_to_i64(image.favorite),
                 image.added_at,
@@ -1806,6 +2367,14 @@ fn import_legacy_image_data(
             },
         },
     )?;
+    if !imported_normalized_base_paths.is_empty() {
+        let tx = conn.transaction().map_err(|error| error.to_string())?;
+        for normalized_base_path in &imported_normalized_base_paths {
+            let _ =
+                dedupe_same_base_path_mounts_tx(&tx, normalized_base_path, &imported_mount_ids)?;
+        }
+        tx.commit().map_err(|error| error.to_string())?;
+    }
     Ok(LegacyImageImportResult {
         backup_path,
         imported_mounts,
@@ -1817,6 +2386,7 @@ fn import_legacy_image_data(
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            get_app_build_info,
             pick_image_mount,
             create_image_mount,
             remove_image_mount,

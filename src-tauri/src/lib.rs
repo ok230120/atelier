@@ -53,6 +53,35 @@ fn ensure_default_image_tag_categories(conn: &Connection) -> Result<(), String> 
     Ok(())
 }
 
+fn app_settings_has_column(conn: &Connection, column_name: &str) -> Result<bool, String> {
+    let mut statement = conn
+        .prepare("PRAGMA table_info(app_settings)")
+        .map_err(|error| error.to_string())?;
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(|error| error.to_string())?;
+
+    for row in rows {
+        if row.map_err(|error| error.to_string())? == column_name {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
+fn ensure_app_settings_columns(conn: &Connection) -> Result<(), String> {
+    if !app_settings_has_column(conn, "tagging_completed_history_json")? {
+        conn.execute(
+            "ALTER TABLE app_settings ADD COLUMN tagging_completed_history_json TEXT NOT NULL DEFAULT '[]'",
+            [],
+        )
+        .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct RecentFolder {
@@ -63,9 +92,18 @@ struct RecentFolder {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
+struct CompletedHistoryEntry {
+    image_id: String,
+    completed_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 struct ImageAppSettings {
     image_import_recent_folders: Vec<RecentFolder>,
     image_import_recent_tag_ids: Vec<String>,
+    #[serde(default)]
+    tagging_completed_history: Vec<CompletedHistoryEntry>,
     image_tag_readings_backfill_done_at: Option<i64>,
 }
 
@@ -407,6 +445,7 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
         id TEXT PRIMARY KEY,
         image_import_recent_folders_json TEXT NOT NULL DEFAULT '[]',
         image_import_recent_tag_ids_json TEXT NOT NULL DEFAULT '[]',
+        tagging_completed_history_json TEXT NOT NULL DEFAULT '[]',
         image_tag_readings_backfill_done_at INTEGER
       );
     ",
@@ -415,6 +454,7 @@ fn init_schema(conn: &Connection) -> Result<(), String> {
 
     ensure_default_image_tag_categories(conn)?;
     reassign_auto_tag_categories(conn)?;
+    ensure_app_settings_columns(conn)?;
 
     conn.execute(
         "INSERT OR IGNORE INTO app_settings (id) VALUES (?1)",
@@ -662,16 +702,18 @@ fn tag_usage_count(
 fn fetch_settings(conn: &Connection) -> Result<ImageAppSettings, String> {
     conn
     .query_row(
-      "SELECT image_import_recent_folders_json, image_import_recent_tag_ids_json, image_tag_readings_backfill_done_at
+      "SELECT image_import_recent_folders_json, image_import_recent_tag_ids_json, tagging_completed_history_json, image_tag_readings_backfill_done_at
        FROM app_settings WHERE id = ?1",
       params![SETTINGS_ID],
       |row| {
         let folders_json: String = row.get(0)?;
         let tag_ids_json: String = row.get(1)?;
+        let completed_history_json: String = row.get(2)?;
         Ok(ImageAppSettings {
           image_import_recent_folders: serde_json::from_str(&folders_json).unwrap_or_default(),
           image_import_recent_tag_ids: serde_json::from_str(&tag_ids_json).unwrap_or_default(),
-          image_tag_readings_backfill_done_at: row.get(2)?,
+          tagging_completed_history: serde_json::from_str(&completed_history_json).unwrap_or_default(),
+          image_tag_readings_backfill_done_at: row.get(3)?,
         })
       },
     )
@@ -683,12 +725,15 @@ fn store_settings(conn: &Connection, settings: &ImageAppSettings) -> Result<(), 
         "UPDATE app_settings
        SET image_import_recent_folders_json = ?1,
            image_import_recent_tag_ids_json = ?2,
-           image_tag_readings_backfill_done_at = ?3
-       WHERE id = ?4",
+           tagging_completed_history_json = ?3,
+           image_tag_readings_backfill_done_at = ?4
+       WHERE id = ?5",
         params![
             serde_json::to_string(&settings.image_import_recent_folders)
                 .map_err(|error| error.to_string())?,
             serde_json::to_string(&settings.image_import_recent_tag_ids)
+                .map_err(|error| error.to_string())?,
+            serde_json::to_string(&settings.tagging_completed_history)
                 .map_err(|error| error.to_string())?,
             settings.image_tag_readings_backfill_done_at,
             SETTINGS_ID
@@ -1076,6 +1121,7 @@ fn merge_recent_folders_for_mount_change(
         &ImageAppSettings {
             image_import_recent_folders: merge_recent_folders(Vec::new(), remapped_folders),
             image_import_recent_tag_ids: existing_settings.image_import_recent_tag_ids,
+            tagging_completed_history: existing_settings.tagging_completed_history,
             image_tag_readings_backfill_done_at: existing_settings.image_tag_readings_backfill_done_at,
         },
     )
@@ -2356,6 +2402,7 @@ fn import_legacy_image_data(
                 existing_settings.image_import_recent_tag_ids,
                 data.recent_tag_ids,
             ),
+            tagging_completed_history: existing_settings.tagging_completed_history,
             image_tag_readings_backfill_done_at: match (
                 existing_settings.image_tag_readings_backfill_done_at,
                 data.image_tag_readings_backfill_done_at,

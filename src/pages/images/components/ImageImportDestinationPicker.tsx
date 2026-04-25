@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { RiAddLine, RiArrowRightSLine, RiFolderLine } from 'react-icons/ri';
+import { RiAddLine, RiArrowRightSLine, RiFolderAddLine, RiFolderLine } from 'react-icons/ri';
 import type { ImageMount } from '../../../types/domain';
 
 type RecentFolder = {
@@ -14,6 +14,7 @@ type Props = {
   selectedFolderPath: string;
   childFolders: string[];
   recentFolders: RecentFolder[];
+  onAddMount: () => Promise<string | null>;
   onMountSelect: (mountId: string) => void;
   onChooseFolder: (folderPath: string) => void;
   onOpenChildFolder: (folderName: string) => void;
@@ -30,6 +31,7 @@ export default function ImageImportDestinationPicker({
   selectedFolderPath,
   childFolders,
   recentFolders,
+  onAddMount,
   onMountSelect,
   onChooseFolder,
   onOpenChildFolder,
@@ -81,6 +83,15 @@ export default function ImageImportDestinationPicker({
       <p className="mt-1 text-sm text-text-dim">
         最近使った保存先を選ぶか、その場でフォルダを作って保存できます。
       </p>
+
+      <button
+        type="button"
+        onClick={() => void onAddMount()}
+        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-border bg-bg-surface px-3 py-2 text-sm text-text-main transition-colors hover:text-accent"
+      >
+        <RiFolderAddLine size={16} />
+        フォルダを追加
+      </button>
 
       {recentEntries.length > 0 && (
         <div className="mt-4">

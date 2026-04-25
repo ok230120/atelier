@@ -44,8 +44,13 @@ export type AppSettings = {
   imageImportRecentTagIds?: string[];
   taggingDismissedImageIds?: string[];
   taggingPendingImageIds?: string[];
-  taggingCompletedHistory?: Array<{ imageId: string; completedAt: number }>;
+  taggingCompletedHistory?: ImageTaggingCompletedHistoryEntry[];
   imageTagReadingsBackfillDoneAt?: number;
+};
+
+export type ImageTaggingCompletedHistoryEntry = {
+  imageId: string;
+  completedAt: number;
 };
 
 export type FolderMount = {

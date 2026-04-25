@@ -2,6 +2,7 @@ import type {
   ImageAppBuildInfo,
   ImageMount,
   ImageRecord,
+  ImageTaggingCompletedHistoryEntry,
   ImageTagCategoryRecord,
   ImageTagRecord,
   LegacyImageImportResult,
@@ -11,6 +12,7 @@ import { invokeTauri } from './tauri';
 export type DesktopImageAppSettings = {
   imageImportRecentFolders: Array<{ mountId: string; folderPath: string; usedAt: number }>;
   imageImportRecentTagIds: string[];
+  taggingCompletedHistory?: ImageTaggingCompletedHistoryEntry[];
   imageTagReadingsBackfillDoneAt?: number;
 };
 

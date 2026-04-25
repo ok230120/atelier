@@ -205,6 +205,7 @@ export default function ImageImportPage() {
             selectedFolderPath={session.selectedFolderPath}
             childFolders={session.childFolders}
             recentFolders={session.recentFolders}
+            onAddMount={session.addMountFromDialog}
             onMountSelect={session.chooseMount}
             onChooseFolder={session.chooseFolder}
             onOpenChildFolder={session.openChildFolder}

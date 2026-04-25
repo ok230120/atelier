@@ -1,10 +1,8 @@
-import { useEffect, useState } from 'react';
 import { RiImageLine } from 'react-icons/ri';
-import type { ImageRecord } from '../../../types/domain';
-import { getImageThumbnailUrl } from '../../../services/imageService';
+import type { QueueItem } from '../../../hooks/useImageTaggingSession';
 
 type Props = {
-  items: ImageRecord[];
+  items: QueueItem[];
   selectedImageId: string | null;
   onSelect: (imageId: string) => void;
 };
@@ -43,23 +41,10 @@ function QueueImageCard({
   selected,
   onSelect,
 }: {
-  image: ImageRecord;
+  image: QueueItem;
   selected: boolean;
   onSelect: () => void;
 }) {
-  const [thumbnail, setThumbnail] = useState<string | null>(image.thumbnail ?? null);
-
-  useEffect(() => {
-    let active = true;
-    void getImageThumbnailUrl(image.id).then((nextThumbnail) => {
-      if (!active) return;
-      setThumbnail(nextThumbnail);
-    });
-    return () => {
-      active = false;
-    };
-  }, [image.id, image.thumbnail]);
-
   return (
     <button
       type="button"
@@ -71,8 +56,13 @@ function QueueImageCard({
       }
     >
       <div className="aspect-square overflow-hidden rounded-lg bg-bg-panel">
-        {thumbnail ? (
-          <img src={thumbnail} alt={image.fileName} className="h-full w-full object-cover" loading="lazy" />
+        {image.thumbnail ? (
+          <img
+            src={image.thumbnail}
+            alt={image.fileName}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
         ) : (
           <div className="flex h-full w-full items-center justify-center text-text-dim">
             <RiImageLine size={24} />

@@ -160,6 +160,12 @@ export default function ImagesPage() {
   const [rescanMessage, setRescanMessage] = useState<string | null>(null);
   const [failedMountsSummary, setFailedMountsSummary] = useState<string | null>(null);
 
+  const visibleMounts = useMemo(
+    () => mounts.filter((mount) => mount.isAvailable !== false),
+    [mounts],
+  );
+  const effectiveMountId = !list.mountId && visibleMounts.length === 1 ? visibleMounts[0].id : list.mountId;
+
   const refreshMeta = async () => {
     const [nextMounts, nextTags] = await Promise.all([listImageMounts(), listImageTags()]);
     setMounts(nextMounts);
@@ -179,7 +185,7 @@ export default function ImagesPage() {
   };
 
   const refreshSubfolders = async () => {
-    const folders = await getSubfolders(list.mountId || null, list.folder);
+    const folders = await getSubfolders(effectiveMountId || null, list.folder);
     setSubfolders(folders);
     return folders;
   };
@@ -194,7 +200,7 @@ export default function ImagesPage() {
 
   useEffect(() => {
     void refreshSubfolders();
-  }, [list.folder, list.mountId]);
+  }, [effectiveMountId, list.folder]);
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -213,11 +219,6 @@ export default function ImagesPage() {
   }, [list, safePage]);
 
   const selectedMount = mounts.find((mount) => mount.id === list.mountId);
-  const visibleMounts = useMemo(
-    () => mounts.filter((mount) => mount.isAvailable !== false),
-    [mounts],
-  );
-  const fallbackMountId = !list.mountId && visibleMounts.length === 1 ? visibleMounts[0].id : list.mountId;
   const activeTagObjects = allTags.filter((tag) => list.selectedTagIds.includes(tag.id));
   const filterScopedTagUsage = useMemo(() => {
     const counts = new Map<string, number>();
@@ -518,7 +519,7 @@ export default function ImagesPage() {
               key={subfolder}
               onClick={() =>
                 list.navigateTo(
-                  fallbackMountId,
+                  effectiveMountId,
                   list.folder ? `${list.folder}/${subfolder}` : subfolder,
                 )
               }

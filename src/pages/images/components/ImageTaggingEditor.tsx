@@ -11,6 +11,7 @@ import {
 
 type Props = {
   detail: ImageTaggingMeta | null;
+  detailLoading?: boolean;
   categories: ImageTagCategoryRecord[];
   allTags: ImageTagRecord[];
   recentTags: ImageTagRecord[];
@@ -24,6 +25,7 @@ type Props = {
 
 export default function ImageTaggingEditor({
   detail,
+  detailLoading = false,
   categories,
   allTags,
   recentTags,
@@ -129,6 +131,17 @@ export default function ImageTaggingEditor({
   );
 
   if (!detail) {
+    if (detailLoading) {
+      return (
+        <section className="flex h-full min-h-0 flex-col items-center justify-center rounded-2xl border border-border bg-bg-panel p-6 text-center">
+          <p className="font-heading text-lg text-text-main">画像を読み込み中</p>
+          <p className="mt-2 text-sm text-text-dim">
+            選択中の画像詳細を取得しています。少し待つと右側に内容が表示されます。
+          </p>
+        </section>
+      );
+    }
+
     return (
       <section className="flex h-full min-h-0 flex-col items-center justify-center rounded-2xl border border-border bg-bg-panel p-6 text-center">
         <p className="font-heading text-lg text-text-main">Tagging 待機中</p>

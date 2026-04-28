@@ -3,22 +3,31 @@ import type { QueueItem } from '../../../hooks/useImageTaggingSession';
 
 type Props = {
   items: QueueItem[];
+  totalCount: number;
   selectedImageId: string | null;
   onSelect: (imageId: string) => void;
 };
 
-export default function ImageTaggingQueue({ items, selectedImageId, onSelect }: Props) {
+export default function ImageTaggingQueue({
+  items,
+  totalCount,
+  selectedImageId,
+  onSelect,
+}: Props) {
   return (
     <section className="flex h-full min-h-0 flex-col rounded-2xl border border-border bg-bg-panel">
       <div className="border-b border-border px-4 py-4">
         <h2 className="font-heading text-lg text-text-main">未処理の画像</h2>
-        <p className="mt-1 text-sm text-text-dim">{items.length} 件</p>
+        <p className="mt-1 text-sm text-text-dim">
+          {totalCount} 件
+          {totalCount !== items.length ? ` (このページ ${items.length} 件)` : ''}
+        </p>
       </div>
 
       {items.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 py-10 text-center">
           <RiImageLine size={34} className="text-text-dim" />
-          <p className="text-sm text-text-dim">条件に合う未処理画像はありません。</p>
+          <p className="text-sm text-text-dim">表示できる未処理画像がありません。</p>
         </div>
       ) : (
         <div className="grid flex-1 grid-cols-2 gap-3 overflow-y-auto p-4 xl:grid-cols-3">

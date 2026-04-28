@@ -9,6 +9,7 @@ import {
   backfillImageTagReadings,
   getImageAppSettings,
   getNormalizedImageTaggingCompletedHistory,
+  getImageThumbnailUrl,
   getImageTaggingMeta,
   getOrCreateImageTag,
   listImageTagCategories,
@@ -96,6 +97,7 @@ export function useImageTaggingSession() {
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [selectedImageId, setSelectedImageId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ImageTaggingMeta | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [categories, setCategories] = useState<ImageTagCategoryRecord[]>([]);
   const [allTags, setAllTags] = useState<ImageTagRecord[]>([]);
   const [recentTagIds, setRecentTagIds] = useState<string[]>([]);
@@ -104,12 +106,23 @@ export function useImageTaggingSession() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const completedIdsRef = useRef<Set<string>>(new Set());
+  const queueRef = useRef<QueueItem[]>([]);
+  const selectedImageIdRef = useRef<string | null>(null);
+  const thumbnailLoadingIdsRef = useRef<Set<string>>(new Set());
+  const sessionLoadVersionRef = useRef(0);
+  const detailLoadVersionRef = useRef(0);
+
+  useEffect(() => {
+    queueRef.current = queue;
+  }, [queue]);
+
+  useEffect(() => {
+    selectedImageIdRef.current = selectedImageId;
+  }, [selectedImageId]);
 
   const hydrateCompletedHistory = useCallback(
     async (entries: ImageTaggingCompletedHistoryEntry[]) => {
       const normalizedEntries = normalizeCompletedHistoryEntries(entries);
-      completedIdsRef.current = new Set(normalizedEntries.map((entry) => entry.imageId));
-
       const hydrated = await Promise.all(
         normalizedEntries.map(async (entry) => {
           try {
@@ -131,44 +144,104 @@ export function useImageTaggingSession() {
         }),
       );
 
-      setCompletedHistory(hydrated.filter((item): item is ImageTaggingCompletedHistoryItem => Boolean(item)));
-      return normalizedEntries;
+      return hydrated.filter((item): item is ImageTaggingCompletedHistoryItem => Boolean(item));
     },
     [],
   );
 
   const refreshQueue = useCallback(async () => {
+    const version = sessionLoadVersionRef.current + 1;
+    sessionLoadVersionRef.current = version;
     setLoading(true);
     setError(null);
 
     try {
-      const [images, nextCategories, tags, settings] = await Promise.all([
+      const [images, settings] = await Promise.all([
         queryImages({ tagIds: [], scope: 'all' }),
-        listImageTagCategories(),
-        listImageTags(),
         getImageAppSettings(),
       ]);
-      await hydrateCompletedHistory(getNormalizedImageTaggingCompletedHistory(settings));
+      if (sessionLoadVersionRef.current !== version) return;
+
+      const completedEntries = getNormalizedImageTaggingCompletedHistory(settings);
+      completedIdsRef.current = new Set(completedEntries.map((entry) => entry.imageId));
 
       const visibleQueue = images
         .filter((image) => !completedIdsRef.current.has(image.id))
         .sort((a, b) => b.addedAt - a.addedAt)
-        .map(toQueueItem);
+        .map((image) => toQueueItem(image));
 
       setQueue(visibleQueue);
-      setCategories(nextCategories);
-      setAllTags(tags);
       setRecentTagIds(settings.imageImportRecentTagIds ?? []);
       setSelectedImageId((prev) => {
         if (prev && visibleQueue.some((image) => image.id === prev)) return prev;
         return visibleQueue[0]?.id ?? null;
       });
+      setLoading(false);
+
+      const [nextCategories, tags, nextCompletedHistory] = await Promise.all([
+        listImageTagCategories(),
+        listImageTags(),
+        hydrateCompletedHistory(completedEntries),
+      ]);
+      if (sessionLoadVersionRef.current !== version) return;
+
+      setCategories(nextCategories);
+      setAllTags(tags);
+      setCompletedHistory(nextCompletedHistory);
     } catch (nextError) {
+      if (sessionLoadVersionRef.current !== version) return;
       setError(nextError instanceof Error ? nextError.message : 'Failed to load tagging items.');
-    } finally {
       setLoading(false);
     }
   }, [hydrateCompletedHistory]);
+
+  const hydrateQueueThumbnails = useCallback(async (imageIds: string[]) => {
+    const uniqueIds = Array.from(new Set(imageIds.filter(Boolean)));
+    if (uniqueIds.length === 0) return;
+
+    const targetIds = uniqueIds.filter((imageId) => {
+      if (thumbnailLoadingIdsRef.current.has(imageId)) return false;
+      const queueItem = queueRef.current.find((item) => item.id === imageId);
+      return Boolean(queueItem && !queueItem.thumbnail);
+    });
+
+    if (targetIds.length === 0) return;
+
+    for (const imageId of targetIds) {
+      thumbnailLoadingIdsRef.current.add(imageId);
+    }
+
+    try {
+      const results = await Promise.all(
+        targetIds.map(async (imageId) => ({
+          imageId,
+          thumbnail: await getImageThumbnailUrl(imageId),
+        })),
+      );
+
+      const thumbnailMap = new Map(
+        results
+          .filter(
+            (result): result is { imageId: string; thumbnail: string } =>
+              typeof result.thumbnail === 'string' && result.thumbnail.length > 0,
+          )
+          .map((result) => [result.imageId, result.thumbnail]),
+      );
+
+      if (thumbnailMap.size === 0) return;
+
+      setQueue((prev) =>
+        prev.map((item) => {
+          const thumbnail = thumbnailMap.get(item.id);
+          return thumbnail && !item.thumbnail ? { ...item, thumbnail } : item;
+        }),
+      );
+    } finally {
+      for (const imageId of targetIds) {
+        thumbnailLoadingIdsRef.current.delete(imageId);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     void refreshQueue();
@@ -177,18 +250,28 @@ export function useImageTaggingSession() {
 
   useEffect(() => {
     if (!selectedImageId) {
+      detailLoadVersionRef.current += 1;
       setDetail(null);
+      setDetailLoading(false);
       return;
     }
 
-    let cancelled = false;
-    void getImageTaggingMeta(selectedImageId).then((nextDetail) => {
-      if (!cancelled) setDetail(nextDetail);
-    });
+    const version = detailLoadVersionRef.current + 1;
+    detailLoadVersionRef.current = version;
+    setDetail(null);
+    setDetailLoading(true);
 
-    return () => {
-      cancelled = true;
-    };
+    void getImageTaggingMeta(selectedImageId)
+      .then((nextDetail) => {
+        if (detailLoadVersionRef.current !== version || selectedImageIdRef.current !== selectedImageId) return;
+        setDetail(nextDetail);
+        setDetailLoading(false);
+      })
+      .catch((nextError) => {
+        if (detailLoadVersionRef.current !== version || selectedImageIdRef.current !== selectedImageId) return;
+        setError(nextError instanceof Error ? nextError.message : 'Failed to load the image detail.');
+        setDetailLoading(false);
+      });
   }, [selectedImageId]);
 
   const recentTags = useMemo(
@@ -218,10 +301,15 @@ export function useImageTaggingSession() {
     setError(null);
 
     try {
-      await addTagsToImages([detail.image.id], [tagId]);
+      const imageId = detail.image.id;
+      await addTagsToImages([imageId], [tagId]);
       await updateRecentImageTags(tagId);
-      const nextDetail = await getImageTaggingMeta(detail.image.id);
-      setDetail(nextDetail);
+      const version = detailLoadVersionRef.current + 1;
+      detailLoadVersionRef.current = version;
+      const nextDetail = await getImageTaggingMeta(imageId);
+      if (detailLoadVersionRef.current === version && selectedImageIdRef.current === imageId) {
+        setDetail(nextDetail);
+      }
       setAllTags((prev) => updateTagUsage(prev, tagId, 1));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Failed to add the tag.');
@@ -236,9 +324,14 @@ export function useImageTaggingSession() {
     setError(null);
 
     try {
-      await removeTagsFromImages([detail.image.id], [tagId]);
-      const nextDetail = await getImageTaggingMeta(detail.image.id);
-      setDetail(nextDetail);
+      const imageId = detail.image.id;
+      await removeTagsFromImages([imageId], [tagId]);
+      const version = detailLoadVersionRef.current + 1;
+      detailLoadVersionRef.current = version;
+      const nextDetail = await getImageTaggingMeta(imageId);
+      if (detailLoadVersionRef.current === version && selectedImageIdRef.current === imageId) {
+        setDetail(nextDetail);
+      }
       setAllTags((prev) => updateTagUsage(prev, tagId, -1));
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : 'Failed to remove the tag.');
@@ -253,11 +346,16 @@ export function useImageTaggingSession() {
     setError(null);
 
     try {
+      const imageId = detail.image.id;
       const tag = await getOrCreateImageTag(name, categoryId);
-      await addTagsToImages([detail.image.id], [tag.id]);
+      await addTagsToImages([imageId], [tag.id]);
       await updateRecentImageTags(tag.id);
-      const nextDetail = await getImageTaggingMeta(detail.image.id);
-      setDetail(nextDetail);
+      const version = detailLoadVersionRef.current + 1;
+      detailLoadVersionRef.current = version;
+      const nextDetail = await getImageTaggingMeta(imageId);
+      if (detailLoadVersionRef.current === version && selectedImageIdRef.current === imageId) {
+        setDetail(nextDetail);
+      }
       setAllTags((prev) => {
         const existing = prev.find((current) => current.id === tag.id);
         return upsertTag(prev, tag, Math.max(1, (existing?.usageCount ?? tag.usageCount) + 1));
@@ -318,6 +416,7 @@ export function useImageTaggingSession() {
 
   return {
     loading,
+    detailLoading,
     busy,
     error,
     queue,
@@ -332,6 +431,7 @@ export function useImageTaggingSession() {
     removeManualTag,
     createAndAddTag,
     goNext,
+    hydrateQueueThumbnails,
     refreshQueue,
   };
 }

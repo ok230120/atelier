@@ -212,7 +212,7 @@ export function useImageTaggingSession() {
     }
 
     try {
-      const results = await Promise.all(
+      const results = await Promise.allSettled(
         targetIds.map(async (imageId) => ({
           imageId,
           thumbnail: await getImageThumbnailUrl(imageId),
@@ -221,6 +221,10 @@ export function useImageTaggingSession() {
 
       const thumbnailMap = new Map(
         results
+          .filter((result): result is PromiseFulfilledResult<{ imageId: string; thumbnail: string | null }> =>
+            result.status === 'fulfilled'
+          )
+          .map((result) => result.value)
           .filter(
             (result): result is { imageId: string; thumbnail: string } =>
               typeof result.thumbnail === 'string' && result.thumbnail.length > 0,

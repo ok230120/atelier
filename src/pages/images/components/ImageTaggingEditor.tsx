@@ -23,6 +23,10 @@ type Props = {
   onNext: () => Promise<void>;
 };
 
+function revokeBlobUrl(url: string | null) {
+  if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+}
+
 export default function ImageTaggingEditor({
   detail,
   detailLoading = false,
@@ -51,19 +55,27 @@ export default function ImageTaggingEditor({
 
   useEffect(() => {
     let active = true;
+    let activeBlobUrl: string | null = null;
 
     if (!detail) {
       setImageUrl(null);
       return () => undefined;
     }
 
+    setImageUrl(null);
+
     void getImageFileUrl(detail.image).then((url) => {
-      if (!active) return;
+      if (!active) {
+        revokeBlobUrl(url);
+        return;
+      }
+      activeBlobUrl = url?.startsWith('blob:') ? url : null;
       setImageUrl(url);
     });
 
     return () => {
       active = false;
+      revokeBlobUrl(activeBlobUrl);
     };
   }, [detail]);
 

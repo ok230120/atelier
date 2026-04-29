@@ -13,6 +13,10 @@ import {
 } from '../../services/imageService';
 import ImageDetailTagPanel from './components/ImageDetailTagPanel';
 
+function revokeBlobUrl(url: string | null) {
+  if (url?.startsWith('blob:')) URL.revokeObjectURL(url);
+}
+
 export default function ImageDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -37,19 +41,27 @@ export default function ImageDetailPage() {
 
   useEffect(() => {
     let active = true;
+    let activeBlobUrl: string | null = null;
 
     if (!image) {
       setImageUrl(null);
       return () => undefined;
     }
 
+    setImageUrl(null);
+
     void getImageFileUrl(image).then((url) => {
-      if (!active) return;
+      if (!active) {
+        revokeBlobUrl(url);
+        return;
+      }
+      activeBlobUrl = url?.startsWith('blob:') ? url : null;
       setImageUrl(url);
     });
 
     return () => {
       active = false;
+      revokeBlobUrl(activeBlobUrl);
     };
   }, [image]);
 

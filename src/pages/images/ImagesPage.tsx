@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   RiAddLine,
@@ -29,7 +29,7 @@ import {
 import type { ImageMount, ImageRecord, ImageTagRecord } from '../../types/domain';
 import TagSelectorPanel from './components/TagSelectorPanel';
 
-const PER_PAGE = 48;
+const PER_PAGE = 42;
 
 function ImageCard({
   image,
@@ -147,6 +147,7 @@ function BulkActionBar({
 export default function ImagesPage() {
   const navigate = useNavigate();
   const list = useImageListUrlState();
+  const pageRootRef = useRef<HTMLDivElement | null>(null);
 
   const [allImages, setAllImages] = useState<ImageRecord[]>([]);
   const [mounts, setMounts] = useState<ImageMount[]>([]);
@@ -217,6 +218,15 @@ export default function ImagesPage() {
   useEffect(() => {
     if (list.page !== safePage) list.setPage(safePage);
   }, [list, safePage]);
+
+  useEffect(() => {
+    const scrollContainer = pageRootRef.current?.closest('main');
+    if (scrollContainer instanceof HTMLElement) {
+      scrollContainer.scrollTo({ top: 0 });
+    } else {
+      window.scrollTo({ top: 0 });
+    }
+  }, [safePage]);
 
   const selectedMount = mounts.find((mount) => mount.id === list.mountId);
   const activeTagObjects = allTags.filter((tag) => list.selectedTagIds.includes(tag.id));
@@ -331,7 +341,7 @@ export default function ImagesPage() {
   })();
 
   return (
-    <div className="min-h-full p-6">
+    <div ref={pageRootRef} className="min-h-full p-6">
       <nav className="mb-5 flex items-center gap-1">
         <button
           onClick={list.goHome}
@@ -559,7 +569,7 @@ export default function ImagesPage() {
       )}
 
       {pageImages.length > 0 && (
-        <div className="mb-6 grid grid-cols-[repeat(auto-fill,minmax(160px,1fr))] gap-3">
+        <div className="mb-6 grid grid-cols-[repeat(auto-fill,minmax(200px,1fr))] gap-3">
           {pageImages.map((image) => (
             <ImageCard
               key={image.id}
